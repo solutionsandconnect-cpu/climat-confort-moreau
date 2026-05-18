@@ -320,7 +320,7 @@ export default function ActeursPage() {
         </div>
 
         <div className="mb-4">
-          <SearchInput value={search} onChange={setSearch} placeholder="Rechercher un acteur, société, type…" />
+          <SearchInput value={search} onChange={setSearch} placeholder="Rechercher un acteur, un type, …" />
         </div>
 
         {showForm && (
