@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   title: "Climat & Confort Moreau",
   description: "Application de gestion des interventions et chantiers",
   icons: {
-    icon: "/favicon.ico",
+    icon: "/Logo Climat et Confort format icone.ico",
   },
 };
 
