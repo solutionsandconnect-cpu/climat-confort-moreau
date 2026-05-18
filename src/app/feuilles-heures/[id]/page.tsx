@@ -18,7 +18,7 @@ import { LISTE_SERVICES } from "@/types";
 
 const CATS = ["Fiche d'heures", "Demande autorisation absence", "Fiche de retour Travaux imprévus"];
 const TYPES_FH = ["Plomberie", "Électricité", "SAV", "Atelier", "Dessin", "Magasin"];
-const TYPES_ABSENCE = ["Congés payés", "RTT", "Arrêt maladie", "Congés sans solde", "Formation", "Autre"];
+const TYPES_ABSENCE = ["Congé payé", "Congé ancienneté", "Congé sans solde", "Jour de récupération", "Jour de repos", "Abs évènement familial"];
 const ETATS = ["En attente", "Validé", "Refusé"];
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
@@ -359,6 +359,7 @@ useEffect(() => {
               <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Demande d&apos;absence</p>
               <div className="flex flex-wrap gap-1.5">
                 {TYPES_ABSENCE.map(t=><button key={t} onClick={()=>setTypeAbs(t)} className={cn("px-3 py-1.5 rounded-badge text-xs font-semibold border transition-all",typeAbs===t?"bg-primary text-white border-primary":"border-alternate text-secondary-text hover:border-primary/50")}>{t}</button>)}
+                <p className="text-xs text-secondary-text mt-1 flex items-center gap-1"><Info size={11}/>Calcul auto (lun-ven)</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="text-xs font-medium text-secondary-text">Date début</label><input className="input-base mt-1" type="date" value={debutAbs} onChange={e=>setDebutAbs(e.target.value)}/></div>
