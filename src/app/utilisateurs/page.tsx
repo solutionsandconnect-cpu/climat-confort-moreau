@@ -35,7 +35,7 @@ function UserCard({ user, canEdit, canToggle }: { user: UserApp; canEdit: boolea
   const [editPrenom, setEditPrenom] = useState(user.prenom);
   const [editPhone, setEditPhone] = useState(user.phoneNumber ?? "");
   const [editType, setEditType] = useState(user.type ?? "");
-  const [editRole, setEditRole] = useState(user.roleapp ?? "Utilisateur");
+  const [editRole, setEditRole] = useState<string>(user.roleapp ?? "Utilisateur");
   const [editService, setEditService] = useState(user.service ?? "");
   const [editForfait, setEditForfait] = useState((user as any).acesForfaitJour ?? "");
 
