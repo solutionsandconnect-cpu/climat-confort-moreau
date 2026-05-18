@@ -37,7 +37,7 @@ function Card({ item, canDelete, onDelete, currentUserId, onMarkRead }: { item: 
             {item.listeLus && item.listeLus.length > 0 && (
               <button className="flex items-center gap-1.5 mt-1 hover:opacity-80" onClick={e => { e.stopPropagation(); setOpen(true); }}>
                 <CheckCircle2 size={11} className="text-green-600" />
-                <span className="text-xs text-green-600 underline">{item.listeLus.length} lecture{item.listeLus.length > 1 ? "s" : ""} — voir qui →</span>
+                <span className="text-xs text-green-600 underline">{item.listeLus.length} lecture{item.listeLus.length > 1 ? "s" : ""}</span>
               </button>
             )}
             {item.listeNomEnvoi?.length && (!item.listeLus || item.listeLus.length === 0) && (

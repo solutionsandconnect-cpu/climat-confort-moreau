@@ -189,6 +189,24 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   // Travaux imprévus
   const [nomCh,setNomCh]=useState(""); const [numCh,setNumCh]=useState(""); const [cptInter,setCptInter]=useState(""); const [ts,setTs]=useState(""); const [tma,setTma]=useState(""); const [cptProrata,setCptProrata]=useState(""); const [estMat,setEstMat]=useState(""); const [estH,setEstH]=useState(""); const [chiffrage,setChiffrage]=useState(""); const [accept,setAccept]=useState(""); const [factImprev,setFactImprev]=useState(""); const [visa,setVisa]=useState(false);
 
+// ✅ AJOUT 1 — Pré-sélection du salarié connecté quand la liste est chargée
+useEffect(() => {
+  if (!isNew || users.length === 0 || !selectedUserId) return;
+  const u = users.find(u => u.uid === selectedUserId || u.id === selectedUserId);
+  if (u) {
+    setNom(u.nom);
+    setPrenom(u.prenom);
+    setService(u.service ?? "");
+  }
+}, [users, isNew]);
+
+// ✅ AJOUT 2 — Sécurité si firebaseUser arrive en retard
+useEffect(() => {
+  if (isNew && firebaseUser?.uid && !selectedUserId) {
+    setSelectedUserId(firebaseUser.uid);
+  }
+}, [firebaseUser, isNew]);
+
   useEffect(() => {
     getDocs(collection(db,"usersapp")).then(snap => setUsers(snap.docs.map(d=>({id:d.id,uid:d.data().uid??d.id,nom:d.data().nom??"",prenom:d.data().prenom??"",service:d.data().service_appartenance,displayName:(d.data().display_name as string)??`${d.data().prenom} ${d.data().nom}`}))));
     if(isNew){setLoading(false);return;}
