@@ -81,7 +81,7 @@ function AjoutActeurPageContent() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="text-xs font-medium text-secondary-text">Nom / Société <span className="text-error">*</span></label><input className="input-base mt-1" value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom ou raison sociale" /></div>
-              <div><label className="text-xs font-medium text-secondary-text">Qualité / Fonction</label><input className="input-base mt-1" value={qualite} onChange={e => setQualite(e.target.value)} placeholder="Ex: Directeur technique" /></div>
+              <div><label className="text-xs font-medium text-secondary-text">Qualité / Fonction</label><input className="input-base mt-1" value={qualite} onChange={e => setQualite(e.target.value)} placeholder="Ex: Propriétaire" /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="text-xs font-medium text-secondary-text">Téléphone</label><input className="input-base mt-1" type="tel" value={tel} onChange={e => setTel(e.target.value)} placeholder="06 00 00 00 00" /></div>

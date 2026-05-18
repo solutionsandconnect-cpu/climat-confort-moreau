@@ -23,9 +23,8 @@ import { NavButton } from "@/components/ui/NavButton";
 import toast from "react-hot-toast";
 
 const TYPES_ACTEUR = [
-  "Maître d'ouvrage", "Maître d'œuvre", "Bureau de contrôle",
-  "Architecte", "Bureau d'étude", "Entreprise co-traitante",
-  "Sous-traitant", "Fournisseur", "Autre",
+  "MOA", "MOE", "Syndic",
+  "Cabinet", "Autre"
 ];
 
 interface Acteur {
@@ -89,7 +88,7 @@ function ActeurForm({
         </div>
         <div>
           <label className="text-xs font-medium text-secondary-text">Qualité / Fonction</label>
-          <input className="input-base mt-1" value={qualite} onChange={e => setQualite(e.target.value)} placeholder="Ex: Directeur technique" />
+          <input className="input-base mt-1" value={qualite} onChange={e => setQualite(e.target.value)} placeholder="Ex: Propriétaire" />
         </div>
       </div>
 
