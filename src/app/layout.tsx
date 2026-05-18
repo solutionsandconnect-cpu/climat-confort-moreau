@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   description: "Application de gestion des interventions et chantiers",
   icons: {
     icon: "/Logo Climat et Confort format icone.ico",
+    apple: "/apple-touch-icon.png",
   },
 };
 
