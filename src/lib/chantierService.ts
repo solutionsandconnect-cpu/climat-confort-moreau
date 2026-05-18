@@ -249,3 +249,32 @@ export async function getConducteurNom(ref: DocumentReference): Promise<string> 
     return "Non assigné";
   }
 }
+
+// ============================================
+// CRÉATION CHANTIER + VÉRIF DOUBLON
+// ============================================
+
+export async function createChantier(data: {
+  nomChantier: string;
+  numChantier: string;
+  conducteurRef?: DocumentReference;
+  createParRef: DocumentReference;
+}): Promise<string> {
+  const { addDoc, serverTimestamp } = await import("firebase/firestore");
+  const ref = await addDoc(collection(db, "Operation"), {
+    nom_chantier: data.nomChantier,
+    num_chantier: data.numChantier,
+    conducteur_travaux: data.conducteurRef ?? null,
+    create_par: data.createParRef,
+    etat_chantier: "En attente",
+    date_create: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function checkNumChantierExists(numChantier: string, excludeId: string): Promise<boolean> {
+  const snap = await getDocs(
+    query(collection(db, "Operation"), where("num_chantier", "==", numChantier))
+  );
+  return snap.docs.some(d => d.id !== excludeId);
+}
