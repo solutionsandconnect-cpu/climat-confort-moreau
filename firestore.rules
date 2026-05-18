@@ -1,0 +1,173 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // === Chantiers FH ===
+    match /Chantiers_fh/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /Chantiers_fh/{parent}/details_chantiers_fh/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /{path=**}/details_chantiers_fh/{document} {
+      allow read: if true;
+    }
+
+    // === Documents FH ===
+    match /Documents_fh/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /Documents_fh/{parent}/details_fh_plomberie/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /{path=**}/details_fh_plomberie/{document} {
+      allow read: if true;
+    }
+
+    // === Journal interne ===
+    match /Journal_interne/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /Journal_interne/{parent}/lecture_document_journal_interne/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /{path=**}/lecture_document_journal_interne/{document} {
+      allow read: if true;
+    }
+
+    // Alias minuscules pour le code Next.js
+    match /journal_interne/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Messagerie ===
+    match /messagerie/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /messagerie/{parent}/messages_messagerie/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /{path=**}/messages_messagerie/{document} {
+      allow read: if true;
+    }
+
+    // === Feuilles heures ===
+    match /Feuilles_heures/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    match /Feuilles_heures/{parent}/details_feuilles_heures/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    match /{path=**}/details_feuilles_heures/{document} {
+      allow read: if request.auth != null;
+    }
+
+    // Alias minuscules pour le code Next.js
+    match /documents_fh/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Notifications ===
+    match /Notifications/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    // Alias minuscules
+    match /notifications/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Notes travaux ===
+    match /Notes_travaux/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Photos ===
+    match /Planning/{parent}/Photo_apres/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    match /{path=**}/Photo_apres/{document} {
+      allow read: if request.auth != null;
+    }
+    match /Planning/{parent}/Photo_avant/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    match /{path=**}/Photo_avant/{document} {
+      allow read: if request.auth != null;
+    }
+
+    // === Logements ===
+    match /Logements/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    // Alias minuscules pour le code Next.js
+    match /logements/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Acteurs autre ===
+    match /Acteurs_autre/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    // Alias minuscules
+    match /acteurs_autre/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Bâtiment ===
+    match /Batiment/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    // Alias minuscules pour le code Next.js
+    match /batiment/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Planning ===
+    match /Planning/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    // Alias minuscules pour le code Next.js
+    match /planning/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Operation (Chantiers) ===
+    match /Operation/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    match /Operation/{parent}/sub_operation_acteurs/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+    match /{path=**}/sub_operation_acteurs/{document} {
+      allow read: if request.auth != null;
+    }
+
+    // === Matériel tâche ===
+    match /Materiel_tache/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Relances ===
+    match /relances/{document} {
+      allow create, read, write, delete: if request.auth != null;
+    }
+
+    // === Utilisateurs ===
+    match /usersapp/{document} {
+      allow create: if true;
+      allow read: if true;
+      allow write: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // === FlutterFlow internal (à garder) ===
+    match /{document=**} {
+      allow read, write: if request.auth.token.email.matches("firebase@flutterflow.io");
+    }
+
+    // === Fallback : tout bloquer ===
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
