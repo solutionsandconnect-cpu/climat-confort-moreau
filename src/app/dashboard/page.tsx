@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { collection, query, where, getDocs, doc, DocumentReference } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, DocumentReference, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
@@ -198,10 +198,14 @@ export default function DashboardPage() {
           <StatCard label="Non facturés" value={stats.nonFacture} icon={<Clock size={20} />} color="warning" />
         </div>
 
-        {/* Recherches */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-          <SearchInput value={searchChantier} onChange={setSearchChantier} placeholder="Nom ou numéro de chantier…" />
-          <SearchInput value={searchLogement} onChange={setSearchLogement} placeholder="N° ou nom occupant…" />
+        {/* Recherche - uniquement sur l'onglet actif */}
+        <div className="mb-4">
+          {activeTab === "logements" && (
+            <SearchInput value={searchLogement} onChange={setSearchLogement} placeholder="Rechercher par N° logement ou nom occupant…" />
+          )}
+          {activeTab === "operations" && (
+            <SearchInput value={searchChantier} onChange={setSearchChantier} placeholder="Nom ou numéro de chantier…" />
+          )}
         </div>
 
         {/* Onglets */}
@@ -288,7 +292,21 @@ export default function DashboardPage() {
                             </div>
                             <p className="text-sm text-secondary-text mt-0.5">{l.nomOccupant || "Aucun occupant"}</p>
                           </div>
-                          <ChevronRight size={16} className="text-secondary-text shrink-0 mt-1" />
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Bouton priorité modifiable */}
+                            <button
+                              onClick={async e => {
+                                e.stopPropagation();
+                                await updateDoc(doc(db, "Logements", l.id), { priorite_logement: !l.prioritaire });
+                              }}
+                              className={cn("text-xs font-semibold px-2 py-1 rounded-lg border transition-all",
+                                l.prioritaire ? "bg-red-100 text-red-700 border-red-200 hover:bg-red-200" : "bg-gray-100 text-gray-500 border-gray-200 hover:bg-yellow-50 hover:text-yellow-700 hover:border-yellow-200")}
+                              title={l.prioritaire ? "Retirer la priorité" : "Marquer prioritaire"}
+                            >
+                              {l.prioritaire ? "★ Prioritaire" : "☆ Standard"}
+                            </button>
+                            <ChevronRight size={16} className="text-secondary-text" />
+                          </div>
                         </div>
 
                         {/* Chantier + conducteur */}

@@ -54,13 +54,9 @@ export default function LoginPage() {
     <div className="min-h-screen bg-secondary-bg flex flex-col items-center justify-start pt-8 pb-12 px-4 animate-page-enter">
       {/* Logo / Header */}
       <div className="w-full max-w-sm flex flex-col items-center gap-6 mb-8">
-        <div className="w-32 h-32 rounded-2xl bg-primary/10 flex items-center justify-center overflow-hidden shadow-card">
-          {/* Remplace par ton vrai logo : <img src="/logo.jpg" ... /> */}
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
-              <span className="text-white font-bold text-xl">CC</span>
-            </div>
-          </div>
+        <div className="w-32 h-32 rounded-2xl overflow-hidden shadow-card border border-alternate">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-ccm.jpg" alt="Climat & Confort Moreau" className="w-full h-full object-cover" />
         </div>
 
         {/* Tagline */}

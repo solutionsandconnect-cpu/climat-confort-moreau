@@ -1,18 +1,26 @@
 "use client";
 export const dynamic = "force-dynamic";
-
-// src/app/batiments/ajout/page.tsx — avec code interphone + infos accès + date réception
+// src/app/batiments/ajout/page.tsx — avec autocomplétion adresse (Nominatim/OpenStreetMap)
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { doc, DocumentReference } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import { createBatimentFull } from "@/lib/formsService";
 import { Spinner } from "@/components/ui";
-import { ArrowLeft, Building2, Check, MapPin, Key, Info, Calendar } from "lucide-react";
+import { ArrowLeft, Building2, Check, MapPin, Key, Calendar, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
+
+interface AdresseSuggestion {
+  display_name: string;
+  address: {
+    road?: string; house_number?: string;
+    postcode?: string; city?: string; town?: string; village?: string; municipality?: string;
+  };
+}
 
 function AjoutBatimentPageContent() {
   const router = useRouter();
@@ -29,8 +37,44 @@ function AjoutBatimentPageContent() {
   const [dateReception, setDateReception] = useState("");
   const [saving, setSaving] = useState(false);
 
-  if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center text-secondary-text">Accès réservé aux administrateurs.</div></AppShell>;
-  if (!chantierId) return <AppShell><div className="p-8 text-center text-secondary-text">Chantier non spécifié.</div></AppShell>;
+  // Autocomplete adresse
+  const [adresseQuery, setAdresseQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<AdresseSuggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (adresseQuery.length < 3) { setSuggestions([]); return; }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setLoadingSuggestions(true);
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=fr&limit=5&q=${encodeURIComponent(adresseQuery)}`,
+          { headers: { "Accept-Language": "fr" } }
+        );
+        const data = await res.json();
+        setSuggestions(data);
+        setShowSuggestions(true);
+      } catch { setSuggestions([]); }
+      finally { setLoadingSuggestions(false); }
+    }, 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [adresseQuery]);
+
+  const selectAdresse = (s: AdresseSuggestion) => {
+    const numRue = s.address.house_number ?? "";
+    const nomRue = s.address.road ?? "";
+    setRue(`${numRue} ${nomRue}`.trim());
+    setCp(s.address.postcode ?? "");
+    setVille(s.address.city ?? s.address.town ?? s.address.village ?? s.address.municipality ?? "");
+    setAdresseQuery(s.display_name.split(",")[0]);
+    setShowSuggestions(false);
+  };
+
+  if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé.</div></AppShell>;
+  if (!chantierId) return <AppShell><div className="p-8 text-center">Chantier non spécifié.</div></AppShell>;
 
   const handleSubmit = async () => {
     if (!nom.trim()) { toast.error("Le nom du bâtiment est obligatoire"); return; }
@@ -54,32 +98,58 @@ function AjoutBatimentPageContent() {
     <AppShell>
       <div className="animate-page-enter max-w-xl mx-auto px-4 lg:px-6 py-5">
         <div className="flex items-center gap-3 mb-5">
-          <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-alternate text-secondary-text hover:text-primary transition-all"><ArrowLeft size={20} /></button>
+          <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-alternate text-secondary-text hover:text-primary"><ArrowLeft size={20} /></button>
           <div>
             <h1 className="text-xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Nouveau bâtiment</h1>
             <p className="text-xs text-secondary-text">Ajout au chantier sélectionné</p>
           </div>
         </div>
-
         <div className="flex justify-center mb-5">
-          <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center border-2 border-primary/20">
-            <Building2 size={28} className="text-primary" />
-          </div>
+          <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center border-2 border-primary/20"><Building2 size={28} className="text-primary" /></div>
         </div>
 
         <div className="space-y-4">
           {/* Nom */}
           <div className="card p-4">
-            <label className="text-xs font-bold text-secondary-text uppercase tracking-wide block mb-2">Nom du bâtiment <span className="text-error">*</span></label>
+            <label className="text-xs font-bold text-secondary-text uppercase tracking-wide block mb-2">Nom du bâtiment *</label>
             <input className="input-base" value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex: Bâtiment A" />
           </div>
 
-          {/* Adresse */}
+          {/* Adresse avec autocomplétion */}
           <div className="card p-4 space-y-3">
             <div className="flex items-center gap-1.5 mb-1">
               <MapPin size={14} className="text-secondary-text" />
               <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Adresse</p>
             </div>
+
+            {/* Champ de recherche d'adresse */}
+            <div className="relative">
+              <label className="text-xs font-medium text-secondary-text">Rechercher une adresse</label>
+              <div className="relative mt-1">
+                <input className="input-base pr-9" value={adresseQuery}
+                  onChange={e => setAdresseQuery(e.target.value)}
+                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  placeholder="Ex: 12 rue de la Paix, Vannes" />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  {loadingSuggestions ? <Spinner size="sm" /> : <Search size={15} className="text-secondary-text" />}
+                </div>
+              </div>
+              {/* Suggestions */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-secondary-bg border border-alternate rounded-xl shadow-lg overflow-hidden">
+                  {suggestions.map((s, i) => (
+                    <button key={i} onClick={() => selectAdresse(s)}
+                      className="w-full text-left px-3 py-2.5 text-sm hover:bg-primary-bg transition-colors border-b border-alternate/50 last:border-0 flex items-start gap-2">
+                      <MapPin size={13} className="text-secondary-text shrink-0 mt-0.5" />
+                      <span className="text-primary-text leading-snug">{s.display_name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-secondary-text">Ou saisissez manuellement :</p>
+
             <div>
               <label className="text-xs font-medium text-secondary-text">Rue / Voie</label>
               <input className="input-base mt-1" value={rue} onChange={e => setRue(e.target.value)} placeholder="Ex: 12 rue de la Paix" />
@@ -131,7 +201,10 @@ function AjoutBatimentPageContent() {
   );
 }
 
-import { Suspense } from "react";
 export default function AjoutBatimentPage() {
-  return <Suspense fallback={<div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}><AjoutBatimentPageContent /></Suspense>;
+  return (
+    <Suspense fallback={<div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
+      <AjoutBatimentPageContent />
+    </Suspense>
+  );
 }
