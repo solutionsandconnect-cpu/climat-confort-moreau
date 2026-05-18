@@ -205,7 +205,7 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
                           <div className="mt-1 space-y-1">
                             {msg.documentPdfList.map((url, i) => (
                               <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                                className={cn("flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border", isMe ? "bg-white/20 text-black border-white/30" : "bg-primary-bg text-primary border-primary/20")}>
+                                className={cn("flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border", isMe ? "bg-white/20 text-black border-black/30" : "bg-primary-bg text-primary border-primary/20")}>
                                 <FileText size={14} />PDF document
                               </a>
                             ))}
