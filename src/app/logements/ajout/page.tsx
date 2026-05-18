@@ -20,7 +20,7 @@ import toast from "react-hot-toast";
 
 const TYPES_CONTACT = ["MOA", "MOE", "Syndic", "Cabinet", "Autre"];
 
-interface ActeurOption { id: string; nomActeur: string; }
+interface ActeurOption { id: string; nomActeur: string; telActeur?: string; mailActeur?: string; qualiteActeur?: string; }
 
 function AjoutLogementPageContent() {
   const router = useRouter();
@@ -54,7 +54,7 @@ function AjoutLogementPageContent() {
   useEffect(() => {
     if (!typeContact || typeContact === "Autre" || occupe) { setActeurs([]); return; }
     const q = query(collection(db, "Acteurs_autre"), where("type_acteur", "==", typeContact));
-    getDocs(q).then(snap => setActeurs(snap.docs.map(d => ({ id: d.id, nomActeur: d.data().nom_acteur as string }))));
+    getDocs(q).then(snap => setActeurs(snap.docs.map(d => ({ id: d.id, nomActeur: d.data().nom_acteur as string, telActeur: d.data().tel_acteur as string, mailActeur: d.data().mail_acteur as string, qualiteActeur: d.data().qualite_acteur as string }))));
   }, [typeContact, occupe]);
 
   if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé aux administrateurs.</div></AppShell>;
@@ -169,33 +169,43 @@ function AjoutLogementPageContent() {
           {/* Contact */}
           <div className="card p-4 space-y-3">
             <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Contact / Occupant</p>
-            <div>
-              <label className="text-xs font-medium text-secondary-text">Type de contact</label>
-              <select className="input-base mt-1" value={typeContact} onChange={e => { setTypeContact(e.target.value); setActeurSelectionne(""); }}>
-                <option value="">— Sélectionner —</option>
-                {TYPES_CONTACT.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
 
-            {/* Sélecteur acteur (si non occupé et type != Autre) */}
-            {!occupe && typeContact && typeContact !== "Autre" && acteurs.length > 0 && (
-              <div>
-                <label className="text-xs font-medium text-secondary-text">Acteur {typeContact}</label>
-                <select className="input-base mt-1" value={acteurSelectionne} onChange={e => {
-                  setActeurSelectionne(e.target.value);
-                  const a = acteurs.find(a => a.id === e.target.value);
-                  if (a) setNomOccupant(a.nomActeur);
-                }}>
-                  <option value="">— Sélectionner un acteur —</option>
-                  {acteurs.map(a => <option key={a.id} value={a.id}>{a.nomActeur}</option>)}
-                </select>
-              </div>
+            {/* Type de contact et sélecteur acteur — seulement si NON occupé */}
+            {!occupe && (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Type de contact</label>
+                  <select className="input-base mt-1" value={typeContact} onChange={e => { setTypeContact(e.target.value); setActeurSelectionne(""); setNomOccupant(""); setTel(""); setMail(""); }}>
+                    <option value="">— Sélectionner —</option>
+                    {TYPES_CONTACT.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+
+                {typeContact && typeContact !== "Autre" && acteurs.length > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Acteur {typeContact}</label>
+                    <select className="input-base mt-1" value={acteurSelectionne} onChange={e => {
+                      setActeurSelectionne(e.target.value);
+                      const a = acteurs.find(a => a.id === e.target.value);
+                      if (a) {
+                        setNomOccupant(a.nomActeur ?? "");
+                        setTel(a.telActeur ?? "");
+                        setMail(a.mailActeur ?? "");
+                        setRoleContact(a.qualiteActeur ?? "");
+                      }
+                    }}>
+                      <option value="">— Sélectionner un acteur —</option>
+                      {acteurs.map(a => <option key={a.id} value={a.id}>{a.nomActeur}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Rôle / Précision</label>
+                  <input className="input-base mt-1" value={roleContact} onChange={e => setRoleContact(e.target.value)} placeholder="Ex: Propriétaire bailleur" />
+                </div>
+              </>
             )}
-
-            <div>
-              <label className="text-xs font-medium text-secondary-text">Rôle / Précision</label>
-              <input className="input-base mt-1" value={roleContact} onChange={e => setRoleContact(e.target.value)} placeholder="Ex: Propriétaire bailleur" />
-            </div>
             <div>
               <label className="text-xs font-medium text-secondary-text">Nom de l&apos;occupant</label>
               <input className="input-base mt-1" value={nomOccupant} onChange={e => setNomOccupant(e.target.value)} placeholder="Nom Prénom" />

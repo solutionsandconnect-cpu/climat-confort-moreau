@@ -148,6 +148,10 @@ export default function DashboardPage() {
         const q = searchLogement.toLowerCase();
         if (!l.numLogement.toLowerCase().includes(q) && !l.nomOccupant.toLowerCase().includes(q)) return false;
       }
+      if (searchChantier.trim()) {
+        const q = searchChantier.toLowerCase();
+        if (!l.chantierNom?.toLowerCase().includes(q) && !l.chantierNum?.toLowerCase().includes(q)) return false;
+      }
       return true;
     });
   }, [logements, logementsEnrichis, filtreFacturation, filtreEtatChantier, filtreSignature, filtreQuitus, filtrePrioritaire, filtreMateriel, filtreRelance, filtreTypeDemande, searchLogement]);
@@ -198,10 +202,13 @@ export default function DashboardPage() {
           <StatCard label="Non facturés" value={stats.nonFacture} icon={<Clock size={20} />} color="warning" />
         </div>
 
-        {/* Recherche - uniquement sur l'onglet actif */}
-        <div className="mb-4">
+        {/* Recherche */}
+        <div className="mb-4 space-y-2">
           {activeTab === "logements" && (
-            <SearchInput value={searchLogement} onChange={setSearchLogement} placeholder="Rechercher par N° logement ou nom occupant…" />
+            <>
+              <SearchInput value={searchLogement} onChange={setSearchLogement} placeholder="Rechercher par N° logement ou nom occupant…" />
+              <SearchInput value={searchChantier} onChange={setSearchChantier} placeholder="Filtrer par nom ou numéro de chantier…" />
+            </>
           )}
           {activeTab === "operations" && (
             <SearchInput value={searchChantier} onChange={setSearchChantier} placeholder="Nom ou numéro de chantier…" />

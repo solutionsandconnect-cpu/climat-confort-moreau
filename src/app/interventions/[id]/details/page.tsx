@@ -55,9 +55,12 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
   // Ajout matériel
   const [showAddMat, setShowAddMat] = useState(false);
   const [newMat, setNewMat] = useState("");
-  const [newEtatMat, setNewEtatMat] = useState("");
+  const [newEtatMat, setNewEtatMat] = useState("En attente");
   const [newLocalisation, setNewLocalisation] = useState("");
+  const [newDateCommande, setNewDateCommande] = useState("");
+  const [newDateReception, setNewDateReception] = useState("");
   const [savingMat, setSavingMat] = useState(false);
+  const ETATS_MAT = ["En attente", "Commandé", "Receptionné"];
 
   const inputAvantRef = useRef<HTMLInputElement>(null);
   const inputApresRef = useRef<HTMLInputElement>(null);
@@ -166,14 +169,17 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
     try {
       await addDoc(collection(db, "Materiel_tache"), {
         materiel_tache: newMat,
-        etat_materiel: newEtatMat || "À commander",
+        etat_materiel: newEtatMat || "En attente",
         localisation_reception_matos: newLocalisation,
-        materiel_ok: false,
+        date_commande: newDateCommande ? new Date(newDateCommande) : null,
+        date_reception: newDateReception ? new Date(newDateReception) : null,
+        materiel_ok: newEtatMat === "Receptionné",
         planning_ref: planningRef,
         date_create: serverTimestamp(),
       });
       toast.success("Matériel ajouté !");
-      setNewMat(""); setNewEtatMat(""); setNewLocalisation("");
+      setNewMat(""); setNewEtatMat("En attente"); setNewLocalisation("");
+      setNewDateCommande(""); setNewDateReception("");
       setShowAddMat(false);
     } catch (e) { console.error(e); toast.error("Erreur lors de l'ajout"); }
     finally { setSavingMat(false); }
@@ -337,8 +343,23 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
             {showAddMat && (
               <div className="card p-3 mb-3 space-y-2 animate-slide-up border-primary/20">
                 <input className="input-base" value={newMat} onChange={e => setNewMat(e.target.value)} placeholder="Nom du matériel / tâche *" />
-                <input className="input-base" value={newEtatMat} onChange={e => setNewEtatMat(e.target.value)} placeholder="État (ex: À commander, En stock…)" />
-                <input className="input-base" value={newLocalisation} onChange={e => setNewLocalisation(e.target.value)} placeholder="Localisation / lieu de réception" />
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">État</label>
+                  <select className="input-base mt-1" value={newEtatMat} onChange={e => setNewEtatMat(e.target.value)}>
+                    {ETATS_MAT.map(e => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                </div>
+                <input className="input-base" value={newLocalisation} onChange={e => setNewLocalisation(e.target.value)} placeholder="Lieu de livraison / réception" />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Date commande</label>
+                    <input className="input-base mt-1" type="date" value={newDateCommande} onChange={e => setNewDateCommande(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Date réception</label>
+                    <input className="input-base mt-1" type="date" value={newDateReception} onChange={e => setNewDateReception(e.target.value)} />
+                  </div>
+                </div>
                 <div className="flex gap-2">
                   <button onClick={handleAddMateriel} disabled={savingMat} className="btn-primary flex items-center gap-2 flex-1 py-2 text-sm">
                     {savingMat ? <Spinner size="sm" /> : <Check size={13} />} Ajouter

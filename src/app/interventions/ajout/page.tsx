@@ -41,12 +41,15 @@ function AjoutInterventionPageContent() {
   // Champs du formulaire
   const [typeDemande, setTypeDemande] = useState("");
   const [descriptif, setDescriptif] = useState("");
-  const [tempsAlloue, setTempsAlloue] = useState("");
+  const [tempsAlloue, setTempsAlloue] = useState("1");
   const [facturable, setFacturable] = useState("");
   const [nomFacturation, setNomFacturation] = useState("");
   const [mailFacturation, setMailFacturation] = useState("");
   const [infosFacturation, setInfosFacturation] = useState("");
   const [quitusRef, setQuitusRef] = useState("");
+  // Acteurs pour facturation
+  const [acteursFacturation, setActeursFacturation] = useState<{id: string; nom: string; mail?: string; adresse?: string}[]>([]);
+  const [acteurFacturationId, setActeurFacturationId] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -86,6 +89,12 @@ function AjoutInterventionPageContent() {
         }));
         setPlanningsExistants(items.slice(0, 20));
       }
+      // Charger acteurs pour facturation
+      const acteursSnap = await getDocs(collection(db, "Acteurs_autre"));
+      setActeursFacturation(acteursSnap.docs.map(d => ({
+        id: d.id, nom: d.data().nom_acteur as string,
+        mail: d.data().mail_acteur as string, adresse: d.data().adresse_acteur as string,
+      })));
       setLoading(false);
     }
     loadData();
@@ -241,6 +250,19 @@ function AjoutInterventionPageContent() {
           {facturable === "Travaux facturables" && (
             <div className="card p-4 space-y-3">
               <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Informations de facturation</p>
+              {acteursFacturation.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Sélectionner un acteur existant</label>
+                  <select className="input-base mt-1" value={acteurFacturationId} onChange={e => {
+                    setActeurFacturationId(e.target.value);
+                    const a = acteursFacturation.find(a => a.id === e.target.value);
+                    if (a) { setNomFacturation(a.nom ?? ""); setMailFacturation(a.mail ?? ""); setInfosFacturation(a.adresse ?? ""); }
+                  }}>
+                    <option value="">— Ou saisir manuellement —</option>
+                    {acteursFacturation.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-secondary-text">Nom facturation <span className="text-error">*</span></label>
                 <input className="input-base mt-1" value={nomFacturation} onChange={e => setNomFacturation(e.target.value)} placeholder="Nom du destinataire" />

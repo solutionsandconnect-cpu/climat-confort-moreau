@@ -51,8 +51,8 @@ function AjoutBatimentPageContent() {
       setLoadingSuggestions(true);
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=fr&limit=5&q=${encodeURIComponent(adresseQuery)}`,
-          { headers: { "Accept-Language": "fr" } }
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=fr&limit=6&q=${encodeURIComponent(adresseQuery)}&accept-language=fr`,
+          { headers: { "User-Agent": "CCM-App/1.0" } }
         );
         const data = await res.json();
         setSuggestions(data);
@@ -66,10 +66,15 @@ function AjoutBatimentPageContent() {
   const selectAdresse = (s: AdresseSuggestion) => {
     const numRue = s.address.house_number ?? "";
     const nomRue = s.address.road ?? "";
-    setRue(`${numRue} ${nomRue}`.trim());
+    setRue(`${numRue} ${nomRue}`.trim() || s.display_name.split(",")[0]);
     setCp(s.address.postcode ?? "");
-    setVille(s.address.city ?? s.address.town ?? s.address.village ?? s.address.municipality ?? "");
-    setAdresseQuery(s.display_name.split(",")[0]);
+    // Nominatim peut stocker la ville dans différents champs selon le type de lieu
+    const villeVal = s.address.city || s.address.town || s.address.village || 
+                     s.address.municipality || s.address.county || "";
+    setVille(villeVal);
+    // Afficher une représentation lisible dans le champ de recherche
+    const parts = [numRue, nomRue, s.address.postcode, villeVal].filter(Boolean);
+    setAdresseQuery(parts.join(", "));
     setShowSuggestions(false);
   };
 
