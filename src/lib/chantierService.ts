@@ -251,7 +251,7 @@ export async function getConducteurNom(ref: DocumentReference): Promise<string> 
 }
 
 // ============================================
-// CRÉATION CHANTIER + VÉRIF DOUBLON
+// CRÉATION CHANTIER
 // ============================================
 
 export async function createChantier(data: {
@@ -270,11 +270,4 @@ export async function createChantier(data: {
     date_create: serverTimestamp(),
   });
   return ref.id;
-}
-
-export async function checkNumChantierExists(numChantier: string, excludeId: string): Promise<boolean> {
-  const snap = await getDocs(
-    query(collection(db, "Operation"), where("num_chantier", "==", numChantier))
-  );
-  return snap.docs.some(d => d.id !== excludeId);
 }
