@@ -361,15 +361,15 @@ useEffect(() => {
                 {TYPES_ABSENCE.map(t=><button key={t} onClick={()=>setTypeAbs(t)} className={cn("px-3 py-1.5 rounded-badge text-xs font-semibold border transition-all",typeAbs===t?"bg-primary text-white border-primary":"border-alternate text-secondary-text hover:border-primary/50")}>{t}</button>)}
               </div>
               <div>
-                <p className="text-xs text-secondary-text mt-1 flex items-center gap-1"><Info size={11}/>N'oubliez pas de prendre en compte 5 samedis sur une année de congés payés. Il n'est pas possible de prendre le congé de fractionnement avant le congé principal.</p>
-                <p className="text-xs text-secondary-text mt-1 flex items-center gap-1"><Info size={11}/>Il est impératif de faire la demande au moins 15 jours avant la date demandée, sauf en cas de circonstances familiales particulières.</p>
+                <p className="text-xs text-secondary-text mt-1 flex items-center gap-1"><Info size={11}/>1- N'oubliez pas de prendre en compte 5 samedis sur une année de congés payés. Il n'est pas possible de prendre le congé de fractionnement avant le congé principal.</p>
+                <p className="text-xs text-secondary-text mt-1 flex items-center gap-1"><Info size={11}/>2- Il est impératif de faire la demande au moins 15 jours avant la date demandée, sauf en cas de circonstances familiales particulières.</p>
               </div>
       
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
   <div>
     <label className="text-xs font-medium text-secondary-text">Date début</label>
     <input 
-      className="input-base mt-1 w-full" 
+      className="input-base mt-1" 
       type="date" 
       value={debutAbs} 
       onChange={e => setDebutAbs(e.target.value)}
@@ -378,7 +378,7 @@ useEffect(() => {
   <div>
     <label className="text-xs font-medium text-secondary-text">Date fin</label>
     <input 
-      className="input-base mt-1 w-full" 
+      className="input-base mt-1" 
       type="date" 
       value={finAbs} 
       onChange={e => setFinAbs(e.target.value)}
