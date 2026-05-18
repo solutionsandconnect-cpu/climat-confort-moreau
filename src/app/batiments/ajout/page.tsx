@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = "force-dynamic";
 
 // src/app/batiments/ajout/page.tsx — avec code interphone + infos accès + date réception
 

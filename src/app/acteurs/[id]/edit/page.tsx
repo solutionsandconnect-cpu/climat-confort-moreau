@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = "force-dynamic";
 // src/app/acteurs/[id]/edit/page.tsx — Modification d'un acteur
 
 import { useEffect, useState } from "react";

@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = "force-dynamic";
 
 // src/app/logements/ajout/page.tsx
 // Bâtiment OBLIGATOIRE + sélecteur acteur si non occupé (comme Flutter)

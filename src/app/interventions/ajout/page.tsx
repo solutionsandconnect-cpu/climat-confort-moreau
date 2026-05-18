@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = "force-dynamic";
 
 // src/app/interventions/ajout/page.tsx
 // Équivalent de ajout_demande_widget.dart

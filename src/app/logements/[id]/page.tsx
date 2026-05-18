@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = "force-dynamic";
 // src/app/logements/[id]/page.tsx — version complète Flutter
 // Mode lecture + édition inline avec bâtiment modifiable et acteur si non occupé
 

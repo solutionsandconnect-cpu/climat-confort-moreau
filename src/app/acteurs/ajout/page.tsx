@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = "force-dynamic";
 // src/app/acteurs/ajout/page.tsx — Ajout d'un acteur depuis un chantier
 
 import { useRouter, useSearchParams } from "next/navigation";
