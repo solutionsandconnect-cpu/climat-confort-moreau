@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 
 const TYPES = ["MOA", "MOE", "Syndic", "Cabinet", "Autre"];
 
-export default function AjoutActeurPage() {
+function AjoutActeurPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { firebaseUser, userApp } = useAuthStore();
@@ -98,4 +98,9 @@ export default function AjoutActeurPage() {
       </div>
     </AppShell>
   );
+}
+
+import { Suspense } from "react";
+export default function AjoutActeurPage() {
+  return <Suspense fallback={<div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}><AjoutActeurPageContent /></Suspense>;
 }

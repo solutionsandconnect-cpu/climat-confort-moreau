@@ -14,7 +14,7 @@ import { Spinner } from "@/components/ui";
 import { ArrowLeft, Building2, Check, MapPin, Key, Info, Calendar } from "lucide-react";
 import toast from "react-hot-toast";
 
-export default function AjoutBatimentPage() {
+function AjoutBatimentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { firebaseUser, userApp } = useAuthStore();
@@ -129,4 +129,9 @@ export default function AjoutBatimentPage() {
       </div>
     </AppShell>
   );
+}
+
+import { Suspense } from "react";
+export default function AjoutBatimentPage() {
+  return <Suspense fallback={<div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}><AjoutBatimentPageContent /></Suspense>;
 }

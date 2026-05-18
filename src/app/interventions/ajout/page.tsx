@@ -26,7 +26,7 @@ interface PlanningQuitus {
   dateRdv?: Date;
 }
 
-export default function AjoutInterventionPage() {
+function AjoutInterventionPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { firebaseUser } = useAuthStore();
@@ -283,4 +283,9 @@ export default function AjoutInterventionPage() {
       </div>
     </AppShell>
   );
+}
+
+import { Suspense } from "react";
+export default function AjoutInterventionPage() {
+  return <Suspense fallback={<div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}><AjoutInterventionPageContent /></Suspense>;
 }
