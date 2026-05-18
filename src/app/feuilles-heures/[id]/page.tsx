@@ -366,12 +366,21 @@ useEffect(() => {
               </div>
       
               <div className="grid grid-cols-2 gap-3">
-
                 <div><label className="text-xs font-medium text-secondary-text">Date début</label><input className="input-base mt-1" type="date" value={debutAbs} onChange={e=>setDebutAbs(e.target.value)}/></div>
-
                 <div><label className="text-xs font-medium text-secondary-text">Date fin</label><input className="input-base mt-1" type="date" value={finAbs} onChange={e=>setFinAbs(e.target.value)}/></div>
-
               </div>
+
+<div className="flex flex-col sm:flex-row gap-3 w-full">
+  <div className="flex-1 w-full">
+    <label className="text-xs font-medium text-secondary-text">Date début</label>
+    <input className="input-base mt-1 w-full" type="date" value={debutAbs} onChange={e=>setDebutAbs(e.target.value)}/>
+  </div>
+  <div className="flex-1 w-full">
+    <label className="text-xs font-medium text-secondary-text">Date fin</label>
+    <input className="input-base mt-1 w-full" type="date" value={finAbs} onChange={e=>setFinAbs(e.target.value)}/>
+  </div>
+</div>
+
               <div>
                 <label className="text-xs font-medium text-secondary-text">Nombre de jours ouvrés</label>
                 <div className="flex items-center gap-3 mt-1">
