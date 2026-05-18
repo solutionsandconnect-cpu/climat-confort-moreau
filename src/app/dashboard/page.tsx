@@ -66,7 +66,7 @@ async function getTypesDemande(logementId: string): Promise<string> {
   const logRef = doc(db, "Logements", logementId);
   const snap = await getDocs(query(collection(db, "Planning"), where("ref_logement", "==", logRef)));
   const types = snap.docs.map(d => d.data().type_demande as string).filter(Boolean);
-  return [...new Set(types)].join(", ");
+  return Array.from(new Set(types)).join(", ");
 }
 
 interface LogementEnrichi extends Logement {
