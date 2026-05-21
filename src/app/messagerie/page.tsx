@@ -9,7 +9,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore } from "@/store/authStore";
 import { EmptyState, LoadingPage, SearchInput } from "@/components/ui";
 import { cn, formatDateRelative, getInitials } from "@/lib/utils";
-import { MessageCircle, Plus, CheckCheck, Circle, X, CheckSquare } from "lucide-react";
+import { MessageCircle, Plus, CheckCheck, Circle, X, CheckSquare, Archive, ArchiveRestore } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface Disc {
@@ -17,6 +17,7 @@ interface Disc {
   dateCreate?: Date; dateLastMessage?: Date;
   userCreate?: DocumentReference; userDestinataire?: DocumentReference;
   etatMessageDestinataire?: boolean; etatMessageExpediteur?: boolean;
+  archiveExpediteur?: boolean; archiveDestinataire?: boolean;
   nomInterlocuteur?: string;
 }
 
@@ -32,12 +33,13 @@ export default function MessageriePage() {
   const [discussions, setDiscussions] = useState<Disc[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"tous" | "non_lus">("tous");
+  const [filter, setFilter] = useState<"tous" | "non_lus" | "archives">("tous");
 
   // Mode sélection
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [markingAs, setMarkingAs] = useState<"lu" | "non_lu" | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     if (!firebaseUser) return;
@@ -76,6 +78,8 @@ export default function MessageriePage() {
       userDestinataire: d.data().user_destinataire,
       etatMessageDestinataire: d.data().etat_message_destinataire,
       etatMessageExpediteur: d.data().etat_message_expediteur,
+      archiveExpediteur: d.data().archive_expediteur ?? false,
+      archiveDestinataire: d.data().archive_destinataire ?? false,
     });
 
     const u1 = onSnapshot(
@@ -107,7 +111,14 @@ export default function MessageriePage() {
     return isMe ? d.etatMessageExpediteur === false : d.etatMessageDestinataire === false;
   }, [firebaseUser?.uid]);
 
+  const isArchived = useCallback((d: Disc) => {
+    const isMe = d.userCreate?.id === firebaseUser?.uid;
+    return isMe ? d.archiveExpediteur === true : d.archiveDestinataire === true;
+  }, [firebaseUser?.uid]);
+
   const filtered = discussions.filter(d => {
+    if (filter === "archives") return isArchived(d);
+    if (isArchived(d)) return false; // masquer les archivées dans les autres filtres
     if (filter === "non_lus" && !isUnread(d)) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -116,7 +127,8 @@ export default function MessageriePage() {
       d.serviceInterlocuteur?.toLowerCase().includes(q);
   });
 
-  const nonLus = discussions.filter(isUnread).length;
+  const nonLus = discussions.filter(d => !isArchived(d) && isUnread(d)).length;
+  const nbArchives = discussions.filter(isArchived).length;
 
   const handleMarkAs = async (read: boolean) => {
     if (!firebaseUser || selected.size === 0) return;
@@ -134,6 +146,24 @@ export default function MessageriePage() {
       setSelectMode(false);
     } catch { toast.error("Erreur"); }
     finally { setMarkingAs(null); }
+  };
+
+  const handleArchive = async (archive: boolean) => {
+    if (!firebaseUser || selected.size === 0) return;
+    setArchiving(true);
+    try {
+      await Promise.all(Array.from(selected).map(async discId => {
+        const disc = discussions.find(d => d.id === discId);
+        if (!disc) return;
+        const amIDestinataire = disc.userDestinataire?.id === firebaseUser.uid;
+        const field = amIDestinataire ? "archive_destinataire" : "archive_expediteur";
+        await updateDoc(doc(db, "messagerie", discId), { [field]: archive });
+      }));
+      toast.success(archive ? `${selected.size} archivée(s)` : `${selected.size} désarchivée(s)`);
+      setSelected(new Set());
+      setSelectMode(false);
+    } catch { toast.error("Erreur"); }
+    finally { setArchiving(false); }
   };
 
   const toggleSelect = (id: string) => {
@@ -178,18 +208,35 @@ export default function MessageriePage() {
         {selectMode && selected.size > 0 && (
           <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-2 flex-wrap animate-page-enter">
             <span className="text-sm font-semibold text-primary flex-1">{selected.size} sélectionnée(s)</span>
-            <button
-              onClick={() => handleMarkAs(true)}
-              disabled={!!markingAs}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 transition-colors disabled:opacity-50">
-              <CheckCheck size={13} />Marquer lue(s)
-            </button>
-            <button
-              onClick={() => handleMarkAs(false)}
-              disabled={!!markingAs}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-error/10 text-error hover:bg-error/20 transition-colors disabled:opacity-50">
-              <Circle size={13} />Marquer non lue(s)
-            </button>
+            {filter !== "archives" ? (
+              <>
+                <button
+                  onClick={() => handleMarkAs(true)}
+                  disabled={!!markingAs || archiving}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 transition-colors disabled:opacity-50">
+                  <CheckCheck size={13} />Marquer lue(s)
+                </button>
+                <button
+                  onClick={() => handleMarkAs(false)}
+                  disabled={!!markingAs || archiving}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-error/10 text-error hover:bg-error/20 transition-colors disabled:opacity-50">
+                  <Circle size={13} />Marquer non lue(s)
+                </button>
+                <button
+                  onClick={() => handleArchive(true)}
+                  disabled={!!markingAs || archiving}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50">
+                  <Archive size={13} />Archiver
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => handleArchive(false)}
+                disabled={archiving}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50">
+                <ArchiveRestore size={13} />Désarchiver
+              </button>
+            )}
           </div>
         )}
 
@@ -199,20 +246,26 @@ export default function MessageriePage() {
         </div>
 
         {/* Filtres */}
-        <div className="flex gap-2 mb-4">
-          {([["tous", "Toutes"], ["non_lus", `Non lues${nonLus > 0 ? ` (${nonLus})` : ""}`]] as const).map(([val, label]) => (
-            <button key={val} onClick={() => setFilter(val)}
-              className={cn("px-3 py-1.5 rounded-badge text-xs font-semibold border transition-all",
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {([
+            ["tous", "Toutes"],
+            ["non_lus", `Non lues${nonLus > 0 ? ` (${nonLus})` : ""}`],
+            ["archives", `Archivées${nbArchives > 0 ? ` (${nbArchives})` : ""}`],
+          ] as const).map(([val, label]) => (
+            <button key={val} onClick={() => { setFilter(val); setSelected(new Set()); }}
+              className={cn("px-3 py-1.5 rounded-badge text-xs font-semibold border transition-all flex items-center gap-1.5",
                 filter === val ? "bg-primary text-white border-primary" : "bg-secondary-bg text-secondary-text border-alternate hover:border-primary/50")}>
+              {val === "archives" && <Archive size={11} />}
               {label}
             </button>
           ))}
         </div>
 
         {filtered.length === 0 ? (
-          <EmptyState icon={<MessageCircle size={28} />}
-            title={filter === "non_lus" ? "Aucun message non lu" : search ? "Aucun résultat" : "Aucune discussion"}
-            description={filter === "non_lus" ? "Tous vos messages sont lus." : search ? "Modifiez votre recherche." : "Démarrez une nouvelle discussion."}
+          <EmptyState
+            icon={filter === "archives" ? <Archive size={28} /> : <MessageCircle size={28} />}
+            title={filter === "non_lus" ? "Aucun message non lu" : filter === "archives" ? "Aucune conversation archivée" : search ? "Aucun résultat" : "Aucune discussion"}
+            description={filter === "non_lus" ? "Tous vos messages sont lus." : filter === "archives" ? "Archivez des conversations pour les retrouver ici." : search ? "Modifiez votre recherche." : "Démarrez une nouvelle discussion."}
             action={!search && filter === "tous" ? (
               <button onClick={() => router.push("/messagerie/nouveau")} className="btn-primary flex items-center gap-2">
                 <Plus size={15} />Nouveau message
