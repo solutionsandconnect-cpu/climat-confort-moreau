@@ -1,8 +1,6 @@
 "use client";
-// Page d'accès admin — permet de se connecter via un custom token Firebase
-// Ouvrir ce lien dans un nouvel onglet / fenêtre incognito pour ne pas perturber la session admin
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signInWithCustomToken } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -11,7 +9,7 @@ import { useAuthStore } from "@/store/authStore";
 import { LoadingPage } from "@/components/ui";
 import { ShieldAlert } from "lucide-react";
 
-export default function AdminAccessPage() {
+function AdminAccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState("");
@@ -49,4 +47,12 @@ export default function AdminAccessPage() {
   }
 
   return <LoadingPage />;
+}
+
+export default function AdminAccessPage() {
+  return (
+    <Suspense fallback={<LoadingPage />}>
+      <AdminAccessContent />
+    </Suspense>
+  );
 }
