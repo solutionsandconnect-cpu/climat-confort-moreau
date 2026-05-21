@@ -39,7 +39,7 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
   const { firebaseUser } = useAuthStore();
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [discussion, setDiscussion] = useState<{ objet?: string } | null>(null);
+  const [discussion, setDiscussion] = useState<{ objet?: string; refDocumentFh?: string } | null>(null);
   const [messageText, setMessageText] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -56,14 +56,27 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  // ID du destinataire de la discussion (chargé depuis Firestore)
+  const destIdRef = useRef<string | null>(null);
 
   const planRef = doc(db, "messagerie", id);
   const currentUserRef = firebaseUser ? doc(db, "usersapp", firebaseUser.uid) : null;
 
   useEffect(() => {
-    // Charger infos discussion
+    // Charger infos discussion + marquer comme lu dès l'ouverture
     getDoc(planRef).then(snap => {
-      if (snap.exists()) setDiscussion({ objet: snap.data().objet_message });
+      if (snap.exists()) {
+        const d = snap.data();
+        const refDocFh = d.ref_document_fh as DocumentReference | null;
+        const userDestRef = d.user_destinataire as DocumentReference | null;
+        destIdRef.current = userDestRef?.id ?? "";
+        setDiscussion({ objet: d.objet_message, refDocumentFh: refDocFh?.id });
+        // Marquer comme lu dès l'ouverture (champ correct selon le rôle)
+        const field = userDestRef?.id === firebaseUser?.uid
+          ? "etat_message_destinataire"
+          : "etat_message_expediteur";
+        updateDoc(planRef, { [field]: true }).catch(() => {});
+      }
     });
 
     setLoading(true);
@@ -94,9 +107,13 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
       setMessages(msgs.map(m => ({ ...m, auteurNom: m.refUser ? newMap.get(m.refUser.id) ?? "…" : "Inconnu" })));
       setLoading(false);
 
-      // Marquer comme lu
-      const isDestinataire = msgs.some(m => m.refUser?.id !== firebaseUser?.uid);
-      await updateDoc(planRef, { [isDestinataire ? "etat_message_destinataire" : "etat_message_expediteur"]: true }).catch(() => {});
+      // Marquer comme lu si le rôle est connu (chargé depuis getDoc)
+      if (destIdRef.current !== null) {
+        const field = destIdRef.current === firebaseUser?.uid
+          ? "etat_message_destinataire"
+          : "etat_message_expediteur";
+        await updateDoc(planRef, { [field]: true }).catch(() => {});
+      }
     });
     return () => unsub();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,13 +123,19 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
 
   const uploadFiles = async (): Promise<{ images: string[]; pdfs: string[]; videos: string[] }> => {
     const upload = async (file: File, path: string) => {
-      const r = storageRef(storage, path);
-      const snap = await uploadBytes(r, file);
-      return getDownloadURL(snap.ref);
+      try {
+        const r = storageRef(storage, path);
+        const snap = await uploadBytes(r, file);
+        return getDownloadURL(snap.ref);
+      } catch (e: any) {
+        console.error("Upload error:", e);
+        toast.error(`Erreur upload ${file.name}: ${e?.message ?? "Vérifiez les règles Firebase Storage"}`);
+        throw e;
+      }
     };
-    const images = await Promise.all(pendingImages.map(f => upload(f, `messagerie/${id}/${Date.now()}_${f.name}`)));
-    const pdfs = await Promise.all(pendingPdfs.map(f => upload(f, `messagerie/${id}/${Date.now()}_${f.name}`)));
-    const videos = await Promise.all(pendingVideos.map(f => upload(f, `messagerie/${id}/${Date.now()}_${f.name}`)));
+    const images = await Promise.all(pendingImages.map(f => upload(f, `messagerie/${id}/${Date.now()}_${f.name.replace(/\s/g, "_")}`)));
+    const pdfs = await Promise.all(pendingPdfs.map(f => upload(f, `messagerie/${id}/${Date.now()}_${f.name.replace(/\s/g, "_")}`)));
+    const videos = await Promise.all(pendingVideos.map(f => upload(f, `messagerie/${id}/${Date.now()}_${f.name.replace(/\s/g, "_")}`)));
     return { images, pdfs, videos };
   };
 
@@ -124,22 +147,37 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
       let images: string[] = [], pdfs: string[] = [], videos: string[] = [];
       if (pendingImages.length || pendingPdfs.length || pendingVideos.length) {
         setUploading(true);
-        const r = await uploadFiles();
-        images = r.images; pdfs = r.pdfs; videos = r.videos;
+        try {
+          const r = await uploadFiles();
+          images = r.images; pdfs = r.pdfs; videos = r.videos;
+        } catch {
+          // Upload a échoué — envoyer quand même le texte s'il y en a un
+          if (!messageText.trim()) { setSending(false); setUploading(false); return; }
+        }
         setUploading(false);
       }
       await addDoc(collection(db, "messagerie", id, "messages_messagerie"), {
         ref_user: currentUserRef,
         message_text: messageText.trim(),
         date_create: serverTimestamp(),
-        document_image_list: images,
-        document_pdf_list: pdfs,
-        document_video_list: videos,
+        document_image_list: images.length > 0 ? images : [],
+        document_pdf_list: pdfs.length > 0 ? pdfs : [],
+        document_video_list: videos.length > 0 ? videos : [],
       });
-      await updateDoc(planRef, { date_last_message: serverTimestamp(), etat_message_destinataire: false });
+      // Marquer non lu pour l'autre personne, lu pour soi
+      const amIDestinataire = destIdRef.current === firebaseUser?.uid;
+      await updateDoc(planRef, {
+        date_last_message: serverTimestamp(),
+        ...(amIDestinataire
+          ? { etat_message_expediteur: false, etat_message_destinataire: true }
+          : { etat_message_destinataire: false, etat_message_expediteur: true }),
+      });
       setMessageText("");
       setPendingImages([]); setPendingPdfs([]); setPendingVideos([]);
-    } catch (e) { console.error(e); toast.error("Erreur lors de l'envoi"); }
+    } catch (e: any) {
+      console.error("Send error:", e);
+      toast.error(`Erreur envoi : ${e?.message ?? "Vérifiez Firebase Storage"}`);
+    }
     finally { setSending(false); setUploading(false); inputRef.current?.focus(); }
   };
 
@@ -162,6 +200,12 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-primary-text text-sm truncate">{discussion?.objet ?? "Discussion"}</p>
           </div>
+          {discussion?.refDocumentFh && (
+            <button onClick={() => router.push(`/feuilles-heures/${discussion.refDocumentFh}`)}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors shrink-0">
+              <FileText size={13} />Document
+            </button>
+          )}
         </div>
 
         {/* Messages */}
@@ -195,7 +239,7 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
                           <div className="flex flex-wrap gap-1 mt-1">
                             {msg.documentImageList.map((url, i) => (
                               <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                                <img src={url} alt="" className="w-24 h-24 object-cover rounded-xl border border-alternate" />
+                                <img src={url} alt="Image" className="w-24 h-24 object-cover rounded-xl border border-alternate" />
                               </a>
                             ))}
                           </div>
@@ -240,14 +284,17 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
         {hasPending && (
           <div className="px-4 py-2 bg-secondary-bg border-t border-alternate flex flex-wrap gap-2 shrink-0">
             {pendingImages.map((f, i) => (
-              <div key={i} className="flex items-center gap-1.5 bg-primary-bg rounded-lg px-2 py-1 text-xs">
-                <ImageIcon size={12} className="text-primary" />{f.name.substring(0, 12)}…
-                <button onClick={() => setPendingImages(p => p.filter((_, j) => j !== i))}><X size={10} /></button>
+              <div key={i} className="relative group">
+                <img src={URL.createObjectURL(f)} alt="" className="w-14 h-14 rounded-lg object-cover border border-alternate" />
+                <button onClick={() => setPendingImages(p => p.filter((_, j) => j !== i))}
+                  className="absolute -top-1 -right-1 w-4 h-4 bg-error rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                  <X size={9} />
+                </button>
               </div>
             ))}
             {pendingPdfs.map((f, i) => (
               <div key={i} className="flex items-center gap-1.5 bg-primary-bg rounded-lg px-2 py-1 text-xs">
-                <FileText size={12} className="text-primary" />{f.name.substring(0, 12)}…
+                <FileText size={12} className="text-primary" />{f.name.length > 12 ? f.name.substring(0, 12) + "…" : f.name}
                 <button onClick={() => setPendingPdfs(p => p.filter((_, j) => j !== i))}><X size={10} /></button>
               </div>
             ))}
@@ -277,7 +324,7 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
             <div className="flex-1 relative">
               <textarea ref={inputRef} value={messageText} onChange={e => setMessageText(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder="Écrivez un message… (Entrée pour envoyer)" rows={1}
+                placeholder="Écrire… (Entrée pour envoyer)" rows={1}
                 className="w-full px-4 py-2.5 rounded-2xl border border-alternate bg-primary-bg text-primary-text text-sm placeholder:text-secondary-text focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
                 style={{ minHeight: "44px", maxHeight: "120px" }}
                 onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 120) + "px"; }} />

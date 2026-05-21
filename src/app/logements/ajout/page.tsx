@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { doc, DocumentReference, collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { doc, DocumentReference, collection, query, where, getDocs, addDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
@@ -15,7 +15,8 @@ import { getBatimentsForOperation } from "@/lib/logementService";
 import type { Batiment } from "@/types";
 import { Spinner } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Home, Check, Star, StarOff, AlertCircle } from "lucide-react";
+import { ArrowLeft, Home, Check, Star, StarOff, AlertCircle, Plus, X, MapPin } from "lucide-react";
+import { AdresseSearch } from "@/components/ui/AdresseSearch";
 import toast from "react-hot-toast";
 
 const TYPES_CONTACT = ["MOA", "MOE", "Syndic", "Cabinet", "Autre"];
@@ -44,6 +45,16 @@ function AjoutLogementPageContent() {
   const [saving, setSaving] = useState(false);
   const [loadingBats, setLoadingBats] = useState(true);
 
+  // Création acteur inline
+  const [showCreateActeur, setShowCreateActeur] = useState(false);
+  const [newActeurNom, setNewActeurNom] = useState("");
+  const [newActeurQualite, setNewActeurQualite] = useState("");
+  const [newActeurTel, setNewActeurTel] = useState("");
+  const [newActeurMail, setNewActeurMail] = useState("");
+  const [newActeurAdresse, setNewActeurAdresse] = useState("");
+  const [newActeurObs, setNewActeurObs] = useState("");
+  const [savingActeur, setSavingActeur] = useState(false);
+
   useEffect(() => {
     if (!chantierId) return;
     const opRef = doc(db, "Operation", chantierId) as DocumentReference;
@@ -52,10 +63,36 @@ function AjoutLogementPageContent() {
 
   // Charger acteurs filtrés par type de contact
   useEffect(() => {
-    if (!typeContact || typeContact === "Autre" || occupe) { setActeurs([]); return; }
+    if (!typeContact || occupe) { setActeurs([]); return; }
     const q = query(collection(db, "Acteurs_autre"), where("type_acteur", "==", typeContact));
     getDocs(q).then(snap => setActeurs(snap.docs.map(d => ({ id: d.id, nomActeur: d.data().nom_acteur as string, telActeur: d.data().tel_acteur as string, mailActeur: d.data().mail_acteur as string, qualiteActeur: d.data().qualite_acteur as string }))));
   }, [typeContact, occupe]);
+
+  const handleCreateActeur = async () => {
+    if (!newActeurNom.trim()) { toast.error("Le nom est obligatoire"); return; }
+    setSavingActeur(true);
+    try {
+      const docRef = await addDoc(collection(db, "Acteurs_autre"), {
+        nom_acteur: newActeurNom, type_acteur: typeContact,
+        qualite_acteur: newActeurQualite, tel_acteur: newActeurTel,
+        mail_acteur: newActeurMail, adresse_acteur: newActeurAdresse,
+        observations: newActeurObs, date_create: serverTimestamp(),
+        create_par: firebaseUser ? doc(db, "usersapp", firebaseUser.uid) : null,
+      });
+      const nouvelActeur: ActeurOption = { id: docRef.id, nomActeur: newActeurNom, telActeur: newActeurTel, mailActeur: newActeurMail, qualiteActeur: newActeurQualite };
+      setActeurs(prev => [...prev, nouvelActeur]);
+      setActeurSelectionne(docRef.id);
+      setNomOccupant(newActeurNom);
+      setTel(newActeurTel);
+      setMail(newActeurMail);
+      setRoleContact(newActeurQualite);
+      setShowCreateActeur(false);
+      setNewActeurNom(""); setNewActeurQualite(""); setNewActeurTel(""); setNewActeurMail("");
+      setNewActeurAdresse(""); setNewActeurObs("");
+      toast.success("Acteur créé et sélectionné !");
+    } catch { toast.error("Erreur lors de la création"); }
+    finally { setSavingActeur(false); }
+  };
 
   if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé aux administrateurs.</div></AppShell>;
   if (!chantierId) return <AppShell><div className="p-8 text-center">Chantier non spécifié.</div></AppShell>;
@@ -75,6 +112,12 @@ function AjoutLogementPageContent() {
         createParRef: doc(db, "usersapp", firebaseUser.uid) as DocumentReference,
         prioritaire,
       });
+      // Lier l'acteur sélectionné au chantier
+      if (acteurSelectionne) {
+        await updateDoc(doc(db, "Acteurs_autre", acteurSelectionne), {
+          operation_ref: doc(db, "Operation", chantierId),
+        });
+      }
       toast.success("Logement créé !");
       router.replace(`/logements/${id}?chantier=${chantierId}`);
     } catch (e) { console.error(e); toast.error("Erreur lors de la création"); }
@@ -175,28 +218,43 @@ function AjoutLogementPageContent() {
               <>
                 <div>
                   <label className="text-xs font-medium text-secondary-text">Type de contact</label>
-                  <select className="input-base mt-1" value={typeContact} onChange={e => { setTypeContact(e.target.value); setActeurSelectionne(""); setNomOccupant(""); setTel(""); setMail(""); }}>
-                    <option value="">— Sélectionner —</option>
-                    {TYPES_CONTACT.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {TYPES_CONTACT.map(t => (
+                      <button key={t} type="button" onClick={() => {
+                        const next = typeContact === t ? "" : t;
+                        setTypeContact(next);
+                        setActeurSelectionne(""); setNomOccupant(""); setTel(""); setMail("");
+                      }}
+                        className={cn("px-3 py-1.5 rounded-lg text-sm font-semibold border-2 transition-all",
+                          typeContact === t ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text hover:border-primary/50")}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {typeContact && typeContact !== "Autre" && acteurs.length > 0 && (
+                {typeContact && (
                   <div>
-                    <label className="text-xs font-medium text-secondary-text">Acteur {typeContact}</label>
-                    <select className="input-base mt-1" value={acteurSelectionne} onChange={e => {
-                      setActeurSelectionne(e.target.value);
-                      const a = acteurs.find(a => a.id === e.target.value);
-                      if (a) {
-                        setNomOccupant(a.nomActeur ?? "");
-                        setTel(a.telActeur ?? "");
-                        setMail(a.mailActeur ?? "");
-                        setRoleContact(a.qualiteActeur ?? "");
-                      }
-                    }}>
-                      <option value="">— Sélectionner un acteur —</option>
-                      {acteurs.map(a => <option key={a.id} value={a.id}>{a.nomActeur}</option>)}
-                    </select>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-secondary-text">Acteur {typeContact}</label>
+                      <button type="button" onClick={() => setShowCreateActeur(true)}
+                        className="flex items-center gap-1 text-xs text-primary font-semibold hover:underline">
+                        <Plus size={12} />Créer un acteur
+                      </button>
+                    </div>
+                    {acteurs.length === 0 ? (
+                      <p className="text-xs text-secondary-text italic py-1">Aucun acteur de type «&nbsp;{typeContact}&nbsp;» — créez-en un ci-dessus.</p>
+                    ) : (
+                      <select className="input-base" value={acteurSelectionne} onChange={e => {
+                        setActeurSelectionne(e.target.value);
+                        const a = acteurs.find(a => a.id === e.target.value);
+                        if (a) { setNomOccupant(a.nomActeur ?? ""); setTel(a.telActeur ?? ""); setMail(a.mailActeur ?? ""); setRoleContact(a.qualiteActeur ?? ""); }
+                        else { setNomOccupant(""); setTel(""); setMail(""); setRoleContact(""); }
+                      }}>
+                        <option value="">— Sélectionner un acteur —</option>
+                        {acteurs.map(a => <option key={a.id} value={a.id}>{a.nomActeur}{a.qualiteActeur ? ` — ${a.qualiteActeur}` : ""}</option>)}
+                      </select>
+                    )}
                   </div>
                 )}
 
@@ -229,6 +287,47 @@ function AjoutLogementPageContent() {
           </button>
         </div>
       </div>
+
+      {/* Modal création acteur */}
+      {showCreateActeur && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowCreateActeur(false); }}>
+          <div className="bg-secondary-bg rounded-2xl w-full max-w-sm shadow-xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-primary-text">Nouvel acteur {typeContact && `— ${typeContact}`}</p>
+              <button onClick={() => setShowCreateActeur(false)} className="p-1 hover:bg-alternate rounded-lg transition-colors"><X size={18} className="text-secondary-text" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-secondary-text">Nom / Société <span className="text-error">*</span></label>
+                <input className="input-base mt-1" value={newActeurNom} onChange={e => setNewActeurNom(e.target.value)} placeholder="Nom ou raison sociale" autoFocus />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-secondary-text">Qualité / Fonction</label>
+                <input className="input-base mt-1" value={newActeurQualite} onChange={e => setNewActeurQualite(e.target.value)} placeholder="Ex: Propriétaire" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Téléphone</label>
+                  <input className="input-base mt-1" type="tel" value={newActeurTel} onChange={e => setNewActeurTel(e.target.value)} placeholder="06…" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Email</label>
+                  <input className="input-base mt-1" type="email" value={newActeurMail} onChange={e => setNewActeurMail(e.target.value)} placeholder="email@…" />
+                </div>
+              </div>
+              <AdresseSearch value={newActeurAdresse} onChange={setNewActeurAdresse} onSelect={setNewActeurAdresse} label="Adresse postale" placeholder="Ex: 12 rue de la Paix, Vannes" />
+              <div>
+                <label className="text-xs font-medium text-secondary-text">Observations</label>
+                <textarea className="input-base mt-1 resize-none" rows={2} value={newActeurObs} onChange={e => setNewActeurObs(e.target.value)} placeholder="Notes…" />
+              </div>
+            </div>
+            <button onClick={handleCreateActeur} disabled={savingActeur || !newActeurNom.trim()} className="btn-primary w-full flex items-center justify-center gap-2">
+              {savingActeur ? <Spinner size="sm" /> : <Check size={16} />}
+              {savingActeur ? "Création…" : "Créer et sélectionner"}
+            </button>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

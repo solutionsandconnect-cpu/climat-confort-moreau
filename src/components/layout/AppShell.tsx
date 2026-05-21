@@ -4,12 +4,18 @@
 // Layout protégé : sidebar + contenu + nav mobile
 // À utiliser pour toutes les pages qui nécessitent d'être connecté
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { collection, query, where, onSnapshot, doc, getDocs } from "firebase/firestore";
+import type { DocumentReference } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { useAuthStore } from "@/store/authStore";
+import { subscribeNotificationsNonLues } from "@/lib/notifMessagerieService";
+import { registerPushToken, onForegroundMessage } from "@/lib/pushService";
 import { Sidebar } from "./Sidebar";
 import { BottomNav } from "./BottomNav";
 import { cn } from "@/lib/utils";
+import toast from "react-hot-toast";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -17,14 +23,86 @@ interface AppShellProps {
 }
 
 export function AppShell({ children, className }: AppShellProps) {
-  const { firebaseUser, initialized } = useAuthStore();
+  const { firebaseUser, userApp, initialized, setMessagesNonLus, setNotificationsNonLues, setJournalInterneNonLu } = useAuthStore();
   const router = useRouter();
+
+  const msgDestCount = useRef(0);
+  const msgCreatCount = useRef(0);
 
   useEffect(() => {
     if (initialized && !firebaseUser) {
       router.replace("/login");
     }
   }, [firebaseUser, initialized, router]);
+
+  // Subscribe to unread messages (as destinataire + as créateur)
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const userRef = doc(db, "usersapp", firebaseUser.uid);
+
+    const unsubDest = onSnapshot(
+      query(collection(db, "messagerie"), where("user_destinataire", "==", userRef), where("etat_message_destinataire", "==", false)),
+      snap => { msgDestCount.current = snap.size; setMessagesNonLus(msgDestCount.current + msgCreatCount.current); }
+    );
+    const unsubCreat = onSnapshot(
+      query(collection(db, "messagerie"), where("user_create", "==", userRef), where("etat_message_expediteur", "==", false)),
+      snap => { msgCreatCount.current = snap.size; setMessagesNonLus(msgDestCount.current + msgCreatCount.current); }
+    );
+
+    return () => { unsubDest(); unsubCreat(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseUser?.uid]);
+
+  // Subscribe to unread journal items
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const myService = userApp?.service;
+    const myType = userApp?.type;
+    const unsub = onSnapshot(collection(db, "Journal_interne"), async snap => {
+      let count = 0;
+      await Promise.all(snap.docs.map(async d => {
+        const listeNomEnvoi = (d.data().liste_nom_envoi as string[]) ?? [];
+        const isRecipient = listeNomEnvoi.some(s => s === myService || s === myType);
+        // Ne pas notifier le créateur si son service n'est pas destinataire
+        if (!isRecipient) return;
+        const lectureSnap = await getDocs(collection(db, "Journal_interne", d.id, "lecture_document_journal_interne"));
+        const hasRead = lectureSnap.docs.some(l => (l.data().user_lu as DocumentReference)?.id === firebaseUser.uid);
+        if (!hasRead) count++;
+      }));
+      setJournalInterneNonLu(count);
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseUser?.uid, userApp?.service, userApp?.type]);
+
+  // Subscribe to unread notifications
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const userRef = doc(db, "usersapp", firebaseUser.uid);
+    const unsub = subscribeNotificationsNonLues(userRef, items => {
+      setNotificationsNonLues(items.length);
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseUser?.uid]);
+
+  // Initialiser les push notifications FCM
+  useEffect(() => {
+    if (!firebaseUser || !userApp) return;
+    // Enregistrement token push (demande permission si pas encore accordée)
+    registerPushToken(userApp.id).catch(() => {});
+
+    // Messages FCM reçus quand l'app est au premier plan
+    let unsubFCM: (() => void) | undefined;
+    onForegroundMessage((payload) => {
+      const title = payload.notification?.title ?? "Notification";
+      const body = payload.notification?.body ?? "";
+      toast(body ? `${title} — ${body}` : title, { icon: "🔔", duration: 5000 });
+    }).then(unsub => { unsubFCM = unsub as (() => void) | undefined; });
+
+    return () => { unsubFCM?.(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseUser?.uid, userApp?.id]);
 
   if (!initialized) {
     return (

@@ -40,8 +40,8 @@ export function NavButton({ adresse, label }: { adresse: string; label?: string 
   return (
     <>
       <button ref={btnRef} onClick={handleClick}
-        className="flex items-center gap-1 bg-primary/10 text-primary hover:bg-primary/20 transition-colors rounded-lg px-2 py-1 shrink-0 text-[10px] font-bold">
-        <Navigation size={11} />{label ?? "GPS"}
+        className="flex items-center gap-1.5 bg-primary text-white hover:bg-primary/90 active:scale-95 transition-all rounded-lg px-2.5 py-1.5 shrink-0 text-xs font-semibold shadow-sm">
+        <Navigation size={13} />{label ?? "Naviguer"}
       </button>
       {open && (
         <div

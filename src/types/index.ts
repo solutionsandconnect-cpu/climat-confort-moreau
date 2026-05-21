@@ -63,6 +63,8 @@ export interface UserApp {
   phoneNumber?: string;
   phonePerso?: string;
   phonePro?: string;
+  phoneType?: "Pro" | "Perso";
+  emailType?: "Pro" | "Perso";
   service?: Service;
 }
 

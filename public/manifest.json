@@ -1,0 +1,20 @@
+{
+  "name": "Climat & Confort Moreau",
+  "short_name": "CCM",
+  "description": "Application de gestion des interventions et chantiers",
+  "start_url": "/accueil",
+  "display": "standalone",
+  "background_color": "#F4F6F8",
+  "theme_color": "#EE8B60",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/logo-ccm.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["business", "productivity"]
+}

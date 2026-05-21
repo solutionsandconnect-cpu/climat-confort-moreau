@@ -6,19 +6,14 @@
 import { useEffect, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
-import { db, auth } from "@/lib/firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, auth, storage } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore } from "@/store/authStore";
-import { LISTE_SERVICES } from "@/types";
 import { Spinner } from "@/components/ui";
 import { cn, formatDate, formatDateRelative, getInitials } from "@/lib/utils";
-import { Pencil, Check, X, Lock, User, Phone, Mail, Briefcase, Shield, Calendar, Eye, EyeOff } from "lucide-react";
+import { Pencil, Check, X, Lock, User, Phone, Mail, Shield, Calendar, Eye, EyeOff, Camera } from "lucide-react";
 import toast from "react-hot-toast";
-
-const TYPES = [
-  "Conducteur de Travaux", "Technicien", "Service SAV / Expertises",
-  "Bureau Administratif", "Magasin", "Chiffrage",
-];
 
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
   return (
@@ -39,11 +34,14 @@ export default function ProfilPage() {
 
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // Champs édition
   const [editNom, setEditNom] = useState(userApp?.nom ?? "");
   const [editPrenom, setEditPrenom] = useState(userApp?.prenom ?? "");
   const [editPhone, setEditPhone] = useState(userApp?.phoneNumber ?? "");
+  const [editPhoneType, setEditPhoneType] = useState<"Pro" | "Perso">(userApp?.phoneType ?? "Pro");
+  const [editEmailType, setEditEmailType] = useState<"Pro" | "Perso">(userApp?.emailType ?? "Pro");
   const [editType, setEditType] = useState(userApp?.type ?? "");
   const [editService, setEditService] = useState(userApp?.service ?? "");
 
@@ -60,10 +58,25 @@ export default function ProfilPage() {
       setEditNom(userApp.nom ?? "");
       setEditPrenom(userApp.prenom ?? "");
       setEditPhone(userApp.phoneNumber ?? "");
+      setEditPhoneType(userApp.phoneType ?? "Pro");
+      setEditEmailType(userApp.emailType ?? "Pro");
       setEditType(userApp.type ?? "");
       setEditService(userApp.service ?? "");
     }
   }, [userApp]);
+
+  const handlePhoto = async (file: File) => {
+    if (!userApp || !firebaseUser) return;
+    setUploadingPhoto(true);
+    try {
+      const r = storageRef(storage, `users/${userApp.id}/photo_${Date.now()}`);
+      await uploadBytes(r, file);
+      const url = await getDownloadURL(r);
+      await updateDoc(doc(db, "usersapp", userApp.id), { photo_url: url });
+      toast.success("Photo de profil mise à jour !");
+    } catch { toast.error("Erreur lors de l'upload de la photo"); }
+    finally { setUploadingPhoto(false); }
+  };
 
   const handleSave = async () => {
     if (!userApp || !firebaseUser) return;
@@ -74,6 +87,8 @@ export default function ProfilPage() {
         prenom: editPrenom,
         display_name: `${editPrenom} ${editNom}`,
         phone_number: editPhone,
+        phone_type: editPhoneType,
+        email_type: editEmailType,
         type: editType,
         service_appartenance: editService,
       });
@@ -112,11 +127,17 @@ export default function ProfilPage() {
 
         {/* Avatar + nom */}
         <div className="card p-6 mb-4 flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-full bg-primary flex items-center justify-center mb-3 shadow-md">
-            {userApp.photoUrl
-              ? <img src={userApp.photoUrl} alt="" className="w-full h-full rounded-full object-cover" />
-              : <span className="text-white text-2xl font-bold">{getInitials(userApp.nom, userApp.prenom)}</span>
-            }
+          <div className="relative mb-3">
+            <div className="w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-md overflow-hidden">
+              {userApp.photoUrl
+                ? <img src={userApp.photoUrl} alt="" className="w-full h-full object-cover" />
+                : <span className="text-white text-2xl font-bold">{getInitials(userApp.nom, userApp.prenom)}</span>
+              }
+            </div>
+            <label className="absolute -bottom-1 -right-1 w-7 h-7 bg-primary rounded-full flex items-center justify-center cursor-pointer hover:bg-primary-600 transition-colors shadow">
+              {uploadingPhoto ? <Spinner size="sm" /> : <Camera size={13} className="text-white" />}
+              <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handlePhoto(f); }} />
+            </label>
           </div>
           <h1 className="text-xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>
             {userApp.displayName || `${userApp.prenom} ${userApp.nom}`}
@@ -151,10 +172,8 @@ export default function ProfilPage() {
             <div className="divide-y divide-alternate/60">
               <InfoRow icon={<User size={15} />} label="Prénom" value={userApp.prenom} />
               <InfoRow icon={<User size={15} />} label="Nom" value={userApp.nom} />
-              <InfoRow icon={<Phone size={15} />} label="Téléphone" value={userApp.phoneNumber} />
-              <InfoRow icon={<Mail size={15} />} label="Email" value={userApp.email} />
-              <InfoRow icon={<Briefcase size={15} />} label="Poste / Type" value={userApp.type} />
-              <InfoRow icon={<Briefcase size={15} />} label="Service" value={userApp.service} />
+              <InfoRow icon={<Phone size={15} />} label={`Téléphone${userApp.phoneType ? ` (${userApp.phoneType})` : ""}`} value={userApp.phoneNumber} />
+              <InfoRow icon={<Mail size={15} />} label={`Email${userApp.emailType ? ` (${userApp.emailType})` : ""}`} value={userApp.email} />
               {userApp.createdTime && <InfoRow icon={<Calendar size={15} />} label="Compte créé le" value={formatDate(userApp.createdTime)} />}
             </div>
           </div>
@@ -165,20 +184,22 @@ export default function ProfilPage() {
               <div><label className="text-xs font-medium text-secondary-text">Prénom</label><input className="input-base mt-1" value={editPrenom} onChange={e => setEditPrenom(e.target.value)} /></div>
               <div><label className="text-xs font-medium text-secondary-text">Nom</label><input className="input-base mt-1" value={editNom} onChange={e => setEditNom(e.target.value)} /></div>
             </div>
-            <div><label className="text-xs font-medium text-secondary-text">Téléphone</label><input className="input-base mt-1" type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} /></div>
             <div>
-              <label className="text-xs font-medium text-secondary-text">Poste / Type</label>
-              <select className="input-base mt-1" value={editType} onChange={e => setEditType(e.target.value)}>
-                <option value="">— Sélectionner —</option>
-                {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <label className="text-xs font-medium text-secondary-text">Téléphone</label>
+              <input className="input-base mt-1" type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} />
+              <div className="flex gap-2 mt-1.5">
+                {(["Pro", "Perso"] as const).map(t => (
+                  <button key={t} type="button" onClick={() => setEditPhoneType(t)} className={cn("flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all", editPhoneType === t ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text")}>{t}</button>
+                ))}
+              </div>
             </div>
             <div>
-              <label className="text-xs font-medium text-secondary-text">Service</label>
-              <select className="input-base mt-1" value={editService} onChange={e => setEditService(e.target.value)}>
-                <option value="">— Sélectionner —</option>
-                {LISTE_SERVICES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <label className="text-xs font-medium text-secondary-text">Type d&apos;email</label>
+              <div className="flex gap-2 mt-1.5">
+                {(["Pro", "Perso"] as const).map(t => (
+                  <button key={t} type="button" onClick={() => setEditEmailType(t)} className={cn("flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all", editEmailType === t ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text")}>{t}</button>
+                ))}
+              </div>
             </div>
             <div className="flex gap-2 pt-1">
               <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 flex-1">
@@ -188,6 +209,13 @@ export default function ProfilPage() {
             </div>
           </div>
         )}
+
+        {/* Mentions légales */}
+        <div className="flex items-center justify-center gap-4 py-3 mt-2">
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-xs text-secondary-text hover:text-primary transition-colors">Politique de confidentialité</a>
+          <span className="text-secondary-text/40">·</span>
+          <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-xs text-secondary-text hover:text-primary transition-colors">Conditions d&apos;utilisation</a>
+        </div>
 
         {/* Mot de passe */}
         <div className="card overflow-hidden">

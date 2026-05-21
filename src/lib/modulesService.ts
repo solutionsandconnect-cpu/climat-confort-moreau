@@ -3,7 +3,7 @@
 
 import {
   collection, query, orderBy, onSnapshot, addDoc, updateDoc,
-  doc, getDocs, where, serverTimestamp, deleteDoc,
+  doc, getDocs, where, serverTimestamp, deleteDoc, getDoc, setDoc,
   DocumentReference, Timestamp, limit,
 } from "firebase/firestore";
 import { db } from "./firebase";
@@ -145,6 +145,8 @@ export function subscribeAllUsers(callback: (users: UserApp[]) => void) {
       lastLogin: firestoreTimestampToDate(d.data().last_login as Timestamp),
       roleapp: d.data().roleapp as UserApp["roleapp"],
       phoneNumber: d.data().phone_number as string,
+      phoneType: d.data().phone_type as UserApp["phoneType"],
+      emailType: d.data().email_type as UserApp["emailType"],
       service: (d.data().service_appartenance as string) ?? d.data().service as string,
       createdTime: firestoreTimestampToDate(d.data().created_time as Timestamp),
     })));
@@ -173,4 +175,47 @@ export async function updateUser(
 
 export async function toggleUserActif(id: string, current: boolean): Promise<void> {
   await updateDoc(doc(db, "usersapp", id), { actif: !current });
+}
+
+// Supprime le compte Firebase Auth + le document Firestore via la route API serveur.
+// callerIdToken : le token Firebase Auth de l'admin qui effectue la suppression.
+export async function deleteUserAccount(firestoreId: string, uid: string, callerIdToken: string): Promise<void> {
+  const res = await fetch("/api/admin/delete-user", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${callerIdToken}`,
+    },
+    body: JSON.stringify({ uid, firestoreId }),
+  });
+  if (!res.ok) {
+    const data = await res.json() as { error?: string };
+    throw new Error(data.error ?? "Erreur lors de la suppression");
+  }
+}
+
+// ============================================
+// QUOTA COMPTES
+// ============================================
+
+export interface QuotaConfig {
+  quotaMax: number;
+}
+
+const QUOTA_DOC = doc(db, "config", "quota_comptes");
+
+export async function getQuotaConfig(): Promise<QuotaConfig> {
+  const snap = await getDoc(QUOTA_DOC);
+  if (!snap.exists()) return { quotaMax: 50 };
+  return { quotaMax: (snap.data().quota_max as number) ?? 50 };
+}
+
+export function subscribeQuotaConfig(callback: (cfg: QuotaConfig) => void) {
+  return onSnapshot(QUOTA_DOC, (snap) => {
+    callback({ quotaMax: snap.exists() ? ((snap.data().quota_max as number) ?? 50) : 50 });
+  });
+}
+
+export async function setQuotaMax(quotaMax: number): Promise<void> {
+  await setDoc(QUOTA_DOC, { quota_max: quotaMax }, { merge: true });
 }

@@ -34,6 +34,9 @@ export interface NotificationItem {
   dateDeclenchement?: Date;
   allerVersPage?: string;
   refUsers?: DocumentReference;
+  // Workflow relance
+  planningId?: string;
+  workflowAction?: "relance_appel" | "relance_mail_manuel" | "relance_mail_auto";
 }
 
 export function subscribeNotificationsNonLues(
@@ -119,11 +122,11 @@ function mapNotif(id: string, data: Record<string, unknown>): NotificationItem {
     etatNotification: data.etat_notification as string,
     dateCreate: firestoreTimestampToDate(data.date_create as Timestamp),
     dateLecture: firestoreTimestampToDate(data.date_lecture as Timestamp),
-    dateDeclenchement: firestoreTimestampToDate(
-      data.date_declenchement as Timestamp
-    ),
+    dateDeclenchement: firestoreTimestampToDate(data.date_declenchement as Timestamp),
     allerVersPage: data.aller_vers_page as string,
     refUsers: data.refUsers as DocumentReference,
+    planningId: data.planning_id as string | undefined,
+    workflowAction: data.workflow_action as NotificationItem["workflowAction"],
   };
 }
 

@@ -9,10 +9,12 @@ import {
   onSnapshot,
   deleteDoc,
   doc,
+  getDocs,
   Timestamp,
   DocumentReference,
   getDoc,
 } from "firebase/firestore";
+import { format } from "date-fns";
 import { db } from "./firebase";
 import { firestoreTimestampToDate } from "./firestore";
 
@@ -65,6 +67,30 @@ export function subscribePlanningByDate(
     }));
     callback(items);
   });
+}
+
+// Counts par jour sur une plage — pour les badges du calendrier
+export async function getPlanningCountsByRange(
+  start: Date,
+  end: Date
+): Promise<Record<string, number>> {
+  const s = new Date(start); s.setHours(0, 0, 0, 0);
+  const e = new Date(end); e.setHours(23, 59, 59, 999);
+  const q = query(
+    collection(db, "Planning"),
+    where("date_rdv", ">=", Timestamp.fromDate(s)),
+    where("date_rdv", "<=", Timestamp.fromDate(e))
+  );
+  const snap = await getDocs(q);
+  const counts: Record<string, number> = {};
+  snap.docs.forEach((d) => {
+    const dateVal = firestoreTimestampToDate(d.data().date_rdv as Timestamp);
+    if (dateVal) {
+      const key = format(dateVal, "yyyy-MM-dd");
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+  });
+  return counts;
 }
 
 // Suppression d'un planning

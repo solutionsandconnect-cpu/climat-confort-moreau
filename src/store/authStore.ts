@@ -54,14 +54,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async (email: string, password: string) => {
     set({ loading: true, error: null });
+    let cred;
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
-      const userApp = await getUserApp(cred.user.uid);
-      set({ firebaseUser: cred.user, userApp, loading: false });
+      cred = await signInWithEmailAndPassword(auth, email, password);
     } catch (err: unknown) {
       const msg = getFirebaseErrorMessage(err);
       set({ error: msg, loading: false });
       throw new Error(msg);
+    }
+    try {
+      const userApp = await getUserApp(cred.user.uid);
+      if (userApp && userApp.actif === false) {
+        await signOut(auth);
+        const msg = "Ce compte est désactivé. Contactez votre administrateur.";
+        set({ error: msg, loading: false });
+        throw new Error(msg);
+      }
+      set({ firebaseUser: cred.user, userApp, loading: false });
+    } catch (err: unknown) {
+      set({ loading: false });
+      throw err;
     }
   },
 
@@ -139,3 +151,19 @@ export const isAdmin = (userApp: UserApp | null) =>
 
 export const isSuperAdmin = (userApp: UserApp | null) =>
   userApp?.roleapp === "SuperAdmin";
+
+// Peut publier dans le journal + voir qui a lu
+// = Conducteur de Travaux, Service SAV/Expertises, Bureau Administratif, Admin, SuperAdmin
+export const canPublishJournal = (userApp: UserApp | null) =>
+  isAdmin(userApp) ||
+  userApp?.type === "Conducteur de Travaux" ||
+  userApp?.type === "Service SAV / Expertises" ||
+  userApp?.type === "Bureau Administratif";
+
+// Peut voir TOUS les documents du journal (Admin voit tout, les autres voient uniquement ceux qui leur sont destinés)
+export const isJournalAdmin = (userApp: UserApp | null) =>
+  isAdmin(userApp);
+
+// Peut voir le tableau de bord (Admin, SuperAdmin, Conducteur de Travaux)
+export const canViewDashboard = (userApp: UserApp | null) =>
+  isAdmin(userApp) || userApp?.type === "Conducteur de Travaux";

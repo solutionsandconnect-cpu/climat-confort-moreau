@@ -60,7 +60,7 @@ export default function AffectationPlanningPage() {
   }, [selectedChantier]);
 
   const handleSave = async () => {
-    if (!selectedTech || !selectedLogement || !dateRdv || !heureDebut) {
+    if (!selectedTech || !dateRdv || !heureDebut) {
       toast.error("Technicien, logement, date et heure de début sont obligatoires");
       return;
     }
@@ -74,7 +74,7 @@ export default function AffectationPlanningPage() {
       };
 
       const techRef = doc(db, "usersapp", selectedTech);
-      const logRef = doc(db, "Logements", selectedLogement);
+      const logRef = selectedLogement ? doc(db, "Logements", selectedLogement) : null;
       const opRef = selectedChantier ? doc(db, "Operation", selectedChantier) : null;
 
       await addDoc(collection(db, "Planning"), {
@@ -127,7 +127,7 @@ export default function AffectationPlanningPage() {
           {/* Chantier + Logement */}
           <div className="card p-4 space-y-3">
             <label className="text-xs font-bold text-secondary-text uppercase tracking-wide flex items-center gap-1.5">
-              <Building2 size={13} />Chantier & Logement <span className="text-error">*</span>
+              <Building2 size={13} />Chantier & Logement
             </label>
             <div>
               <label className="text-xs font-medium text-secondary-text">Chantier</label>
@@ -172,7 +172,7 @@ export default function AffectationPlanningPage() {
             </div>
           </div>
 
-          <button onClick={handleSave} disabled={saving || !selectedTech || !selectedLogement || !dateRdv || !heureDebut}
+          <button onClick={handleSave} disabled={saving || !selectedTech || !dateRdv || !heureDebut}
             className="btn-primary w-full py-3 flex items-center justify-center gap-2">
             {saving ? <Spinner size="sm" /> : <Check size={16} />}
             {saving ? "Affectation en cours…" : "Enregistrer le planning"}

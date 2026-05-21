@@ -2,8 +2,10 @@
 
 // src/components/layout/Sidebar.tsx
 
+import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
-import { useAuthStore, isAdmin, isSuperAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, isSuperAdmin, canViewDashboard } from "@/store/authStore";
+import type { UserApp } from "@/types";
 import { cn, getInitials } from "@/lib/utils";
 import {
   LayoutDashboard, Home, Users, UsersRound, FileText,
@@ -15,6 +17,7 @@ import toast from "react-hot-toast";
 interface NavItem {
   label: string; icon: React.ReactNode; href: string; page: string;
   adminOnly?: boolean; superAdminOnly?: boolean; badge?: number;
+  visible?: (u: UserApp | null) => boolean;
 }
 
 export function Sidebar() {
@@ -26,7 +29,7 @@ export function Sidebar() {
 
   const navItems: NavItem[] = [
     { label: "Accueil", icon: <Home size={18} />, href: "/accueil", page: "Accueil" },
-    { label: "Tableau de bord", icon: <LayoutDashboard size={18} />, href: "/dashboard", page: "DashBoard" },
+    { label: "Tableau de bord", icon: <LayoutDashboard size={18} />, href: "/dashboard", page: "DashBoard", visible: canViewDashboard },
     { label: "Affecter un planning", icon: <CalendarPlus size={18} />, href: "/affectation-planning", page: "Affecter planning", adminOnly: true },
     { label: "Liste utilisateurs", icon: <Users size={18} />, href: "/utilisateurs", page: "Liste utilisateurs", adminOnly: true },
     { label: "Acteurs chantiers", icon: <UsersRound size={18} />, href: "/acteurs", page: "Acteurs chantiers", adminOnly: true },
@@ -46,6 +49,7 @@ export function Sidebar() {
   const filteredItems = navItems.filter(item => {
     if (item.superAdminOnly && !isSuperAdmin(userApp)) return false;
     if (item.adminOnly && !isAdmin(userApp)) return false;
+    if (item.visible && !item.visible(userApp)) return false;
     return true;
   });
 
@@ -54,9 +58,16 @@ export function Sidebar() {
       {/* Header avec logo */}
       <div className="px-4 pt-5 pb-4 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl overflow-hidden shrink-0 border border-alternate">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-ccm.jpg" alt="CCM" className="w-full h-full object-cover" />
+          <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow-sm bg-white">
+            <Image
+              src="/logo-ccm.jpg"
+              alt="Climat & Confort Moreau"
+              width={96}
+              height={96}
+              quality={100}
+              className="w-full h-full object-contain"
+              priority
+            />
           </div>
           <div>
             <p className="font-bold text-primary-text text-sm leading-tight">Climat & Confort</p>

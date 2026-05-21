@@ -1,19 +1,23 @@
 "use client";
 // src/app/utilisateurs/creer/page.tsx — création de compte utilisateur
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { initializeApp, deleteApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, firebaseConfig, storage } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import { Spinner } from "@/components/ui";
 import { LISTE_SERVICES } from "@/types";
-import { ArrowLeft, UserPlus, Check, Eye, EyeOff } from "lucide-react";
+import { subscribeAllUsers, subscribeQuotaConfig } from "@/lib/modulesService";
+import { ArrowLeft, UserPlus, Check, Eye, EyeOff, Camera, AlertTriangle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
-const ROLES = ["Utilisateur", "Admin", "SuperAdmin"];
+const ROLES = ["Utilisateur", "SuperAdmin"];
 const TYPES = ["Conducteur de Travaux", "Technicien", "Service SAV / Expertises", "Bureau Administratif", "Magasin", "Chiffrage"];
 
 export default function CreerComptePage() {
@@ -26,34 +30,75 @@ export default function CreerComptePage() {
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneType, setPhoneType] = useState<"Pro" | "Perso">("Pro");
+  const [emailType, setEmailType] = useState<"Pro" | "Perso">("Pro");
   const [type, setType] = useState("");
   const [role, setRole] = useState("Utilisateur");
   const [service, setService] = useState("");
-  const [forfait, setForfait] = useState("");
+  const [forfait, setForfait] = useState("Pas de forfait jour");
   const [showPwd, setShowPwd] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Quota
+  const [quotaMax, setQuotaMax] = useState<number | null>(null);
+  const [totalUsers, setTotalUsers] = useState<number>(0);
+
+  useEffect(() => {
+    const unsubQ = subscribeQuotaConfig(cfg => setQuotaMax(cfg.quotaMax));
+    const unsubU = subscribeAllUsers(users => setTotalUsers(users.length));
+    return () => { unsubQ(); unsubU(); };
+  }, []);
 
   if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center text-secondary-text">Accès réservé aux administrateurs.</div></AppShell>;
+
+  const restant = quotaMax !== null ? quotaMax - totalUsers : null;
+  const quotaAtteint = restant !== null && restant <= 0;
+  const quotaWarning = restant !== null && restant > 0 && restant <= 5;
+
+  const handlePhoto = (file: File) => {
+    setPhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = e => setPhotoPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async () => {
     if (!email || !password || !nom || !prenom) { toast.error("Email, mot de passe, nom et prénom obligatoires"); return; }
     if (password !== confirmPwd) { toast.error("Les mots de passe ne correspondent pas"); return; }
     if (password.length < 6) { toast.error("Mot de passe minimum 6 caractères"); return; }
+    if (quotaAtteint) { toast.error("Quota maximum de comptes atteint"); return; }
     setSaving(true);
+    const secondaryApp = initializeApp(firebaseConfig, `create-user-${Date.now()}`);
+    const secondaryAuth = getAuth(secondaryApp);
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      let photoUrl = "";
+      if (photoFile) {
+        const r = storageRef(storage, `users/${cred.user.uid}/photo_${Date.now()}`);
+        await uploadBytes(r, photoFile);
+        photoUrl = await getDownloadURL(r);
+      }
       await setDoc(doc(db, "usersapp", cred.user.uid), {
         uid: cred.user.uid, email, display_name: `${prenom} ${nom}`,
-        nom, prenom, phone_number: phone, type, roleapp: role,
-        service_appartenance: service, acces_forfait_jour: forfait,
+        nom, prenom, phone_number: phone, phone_type: phoneType, email_type: emailType,
+        type, roleapp: role, service_appartenance: service,
+        acces_forfait_jour: forfait, photo_url: photoUrl || null,
         actif: true, created_time: serverTimestamp(),
       });
       toast.success("Compte créé !");
       router.replace("/utilisateurs");
-    } catch (e: any) {
-      if (e.code === "auth/email-already-in-use") toast.error("Cet email est déjà utilisé");
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      if (err.code === "auth/email-already-in-use") toast.error("Cet email est déjà utilisé");
       else toast.error("Erreur lors de la création");
-    } finally { setSaving(false); }
+    } finally {
+      await signOut(secondaryAuth).catch(() => {});
+      await deleteApp(secondaryApp).catch(() => {});
+      setSaving(false);
+    }
   };
 
   return (
@@ -64,18 +109,51 @@ export default function CreerComptePage() {
           <div><h1 className="text-xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Créer un compte</h1><p className="text-xs text-secondary-text">Nouvel utilisateur de l&apos;application</p></div>
         </div>
 
-        <div className="flex justify-center mb-5"><div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center border-2 border-primary/20"><UserPlus size={28} className="text-primary" /></div></div>
+        {/* Quota banner */}
+        {quotaMax !== null && (
+          <div className={cn("rounded-xl px-4 py-3 mb-4 flex items-center gap-3 text-sm", quotaAtteint ? "bg-red-50 border border-red-200 text-red-700" : quotaWarning ? "bg-yellow-50 border border-yellow-200 text-yellow-800" : "bg-primary/5 border border-primary/20 text-primary")}>
+            {(quotaAtteint || quotaWarning) && <AlertTriangle size={16} className="shrink-0" />}
+            <span>
+              {quotaAtteint
+                ? "Quota maximum atteint. Impossible de créer un nouveau compte."
+                : `${restant} compte${restant !== 1 ? "s" : ""} restant${restant !== 1 ? "s" : ""} sur ${quotaMax}.`}
+            </span>
+          </div>
+        )}
+
+        {/* Photo de profil */}
+        <div className="flex justify-center mb-5">
+          <div className="relative">
+            <div className="w-20 h-20 rounded-xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center overflow-hidden">
+              {photoPreview
+                ? <img src={photoPreview} alt="" className="w-full h-full object-cover" />
+                : <UserPlus size={28} className="text-primary" />}
+            </div>
+            <label className="absolute -bottom-1 -right-1 w-7 h-7 bg-primary rounded-full flex items-center justify-center cursor-pointer hover:bg-primary-600 transition-colors shadow">
+              <Camera size={13} className="text-white" />
+              <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handlePhoto(f); }} />
+            </label>
+          </div>
+        </div>
 
         <div className="space-y-4">
           <div className="card p-4 space-y-3">
             <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Identifiants *</p>
-            <div><label className="text-xs font-medium text-secondary-text">Email *</label><input className="input-base mt-1" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemple.com" /></div>
-            <div><label className="text-xs font-medium text-secondary-text">Mot de passe * (min. 6 caractères)</label>
-              <div className="relative mt-1"><input className="input-base pr-10" type={showPwd ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
-                <button onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text">{showPwd ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+            <div>
+              <label className="text-xs font-medium text-secondary-text">Email *</label>
+              <input className="input-base mt-1" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemple.com" autoComplete="off" />
+              <div className="flex gap-2 mt-1.5">
+                {(["Pro", "Perso"] as const).map(t => (
+                  <button key={t} type="button" onClick={() => setEmailType(t)} className={cn("flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all", emailType === t ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text")}>{t}</button>
+                ))}
               </div>
             </div>
-            <div><label className="text-xs font-medium text-secondary-text">Confirmer le mot de passe *</label><input className="input-base mt-1" type="password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder="••••••••" /></div>
+            <div><label className="text-xs font-medium text-secondary-text">Mot de passe * (min. 6 caractères)</label>
+              <div className="relative mt-1"><input className="input-base pr-10" type={showPwd ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
+                <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text">{showPwd ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+              </div>
+            </div>
+            <div><label className="text-xs font-medium text-secondary-text">Confirmer le mot de passe *</label><input className="input-base mt-1" type="password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder="••••••••" autoComplete="new-password" /></div>
           </div>
 
           <div className="card p-4 space-y-3">
@@ -84,7 +162,15 @@ export default function CreerComptePage() {
               <div><label className="text-xs font-medium text-secondary-text">Prénom *</label><input className="input-base mt-1" value={prenom} onChange={e => setPrenom(e.target.value)} placeholder="Prénom" /></div>
               <div><label className="text-xs font-medium text-secondary-text">Nom *</label><input className="input-base mt-1" value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom" /></div>
             </div>
-            <div><label className="text-xs font-medium text-secondary-text">Téléphone</label><input className="input-base mt-1" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="06 00 00 00 00" /></div>
+            <div>
+              <label className="text-xs font-medium text-secondary-text">Téléphone</label>
+              <input className="input-base mt-1" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="06 00 00 00 00" />
+              <div className="flex gap-2 mt-1.5">
+                {(["Pro", "Perso"] as const).map(t => (
+                  <button key={t} type="button" onClick={() => setPhoneType(t)} className={cn("flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all", phoneType === t ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text")}>{t}</button>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="card p-4 space-y-3">
@@ -97,12 +183,12 @@ export default function CreerComptePage() {
             <div>
               <label className="text-xs font-medium text-secondary-text mb-1.5 block">Forfait Jour</label>
               <div className="flex gap-2">
-                {["Forfait Jour", "Pas de forfait jour"].map(o => <button key={o} onClick={() => setForfait(o)} className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-all ${forfait === o ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text"}`}>{o}</button>)}
+                {["Forfait Jour", "Pas de forfait jour"].map(o => <button key={o} type="button" onClick={() => setForfait(o)} className={cn("flex-1 py-2 rounded-lg text-xs font-semibold border transition-all", forfait === o ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text")}>{o}</button>)}
               </div>
             </div>
           </div>
 
-          <button onClick={handleSubmit} disabled={saving || !email || !password || !nom || !prenom} className="btn-primary w-full py-3 flex items-center justify-center gap-2">
+          <button onClick={handleSubmit} disabled={saving || quotaAtteint || !email || !password || !nom || !prenom} className="btn-primary w-full py-3 flex items-center justify-center gap-2">
             {saving ? <Spinner size="sm" /> : <Check size={16} />}{saving ? "Création…" : "Créer le compte"}
           </button>
         </div>

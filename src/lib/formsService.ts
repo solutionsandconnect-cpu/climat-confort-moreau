@@ -101,7 +101,7 @@ export async function createLogement(data: {
     batiment_ref: data.batimentRef ?? null,
     operation_ref: data.operationRef,
     create_par: data.createParRef,
-    prioritaire: data.prioritaire ?? false,
+    priorite_logement: data.prioritaire ?? false,
     etat_chantier: "En attente",
     etat_quitus: "Non envoyé",
     etat_facturation: "Non facturé",
@@ -141,10 +141,13 @@ export interface InterventionDetail {
   dateSignatureClient?: Date;
   dateSignatureTechnicien?: Date;
   quitusPdf?: string;
+  numQuitus?: number;
+  quitusNumero?: string;
   refUsers?: DocumentReference;
   refLogement?: DocumentReference;
   refOperation?: DocumentReference;
   sousTraitant?: string;
+  etatFacturation?: string;
   // résolus
   technicienNom?: string;
   logementNum?: string;
@@ -187,10 +190,13 @@ export function subscribeIntervention(
       dateSignatureClient: firestoreTimestampToDate(d.date_signature_client as Timestamp),
       dateSignatureTechnicien: firestoreTimestampToDate(d.date_signature_technicien as Timestamp),
       quitusPdf: d.quitus_pdf as string,
+      numQuitus: d.num_quitus as number,
+      quitusNumero: d.quitus_numero as string,
       refUsers: d.ref_users as DocumentReference,
       refLogement: d.ref_logement as DocumentReference,
       refOperation: d.ref_operation as DocumentReference,
       sousTraitant: d.sous_traitant_si_pas_tech as string,
+      etatFacturation: d.etat_facturation as string,
     });
   });
 }
@@ -207,6 +213,7 @@ export async function updateIntervention(id: string, data: Partial<{
   infosFacturation: string;
   heureDebutInter: Date;
   heureFinInter: Date;
+  etatFacturation: string;
 }>): Promise<void> {
   const mapped: Record<string, unknown> = {};
   if (data.statutRdv !== undefined) mapped.statut_rdv = data.statutRdv;
@@ -220,6 +227,7 @@ export async function updateIntervention(id: string, data: Partial<{
   if (data.infosFacturation !== undefined) mapped.infos_facturation = data.infosFacturation;
   if (data.heureDebutInter !== undefined) mapped.heureDebutInter = Timestamp.fromDate(data.heureDebutInter);
   if (data.heureFinInter !== undefined) mapped.heureFinInter = Timestamp.fromDate(data.heureFinInter);
+  if (data.etatFacturation !== undefined) mapped.etat_facturation = data.etatFacturation;
   await updateDoc(doc(db, "Planning", id), mapped);
 }
 

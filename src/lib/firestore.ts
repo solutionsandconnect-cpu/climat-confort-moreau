@@ -94,7 +94,9 @@ function mapUserApp(id: string, data: Record<string, unknown>): UserApp {
     lastLogin: firestoreTimestampToDate(data.last_login as Timestamp),
     roleapp: data.roleapp as UserApp["roleapp"],
     phoneNumber: data.phone_number as string | undefined,
-    service: data.service as UserApp["service"],
+    phoneType: data.phone_type as UserApp["phoneType"],
+    emailType: data.email_type as UserApp["emailType"],
+    service: (data.service_appartenance as UserApp["service"]) ?? data.service as UserApp["service"],
   };
 }
 

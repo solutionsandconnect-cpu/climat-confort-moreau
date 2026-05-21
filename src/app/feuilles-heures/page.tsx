@@ -2,15 +2,15 @@
 // src/app/feuilles-heures/page.tsx
 // Liste des documents FH avec les 3 types : Fiche d'heures / Demande absence / Travaux imprévus
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { collection, query, where, orderBy, onSnapshot, doc, Timestamp, DocumentReference, getDocs } from "firebase/firestore";
+import { collection, query, where, orderBy, onSnapshot, doc, Timestamp, DocumentReference, getDocs, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import { EmptyState, LoadingPage, SearchInput, FilterChip, Spinner } from "@/components/ui";
 import { cn, formatDate } from "@/lib/utils";
-import { FileText, Plus, ChevronDown, ChevronUp, CheckCircle2, Clock, XCircle, Pencil } from "lucide-react";
+import { FileText, Plus, ChevronDown, ChevronUp, CheckCircle2, Pencil, Send, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 const CATS = ["Fiche d'heures", "Demande autorisation absence", "Fiche de retour Travaux imprévus"];
@@ -34,6 +34,7 @@ interface DocFH {
   signatureChefEquipe?: string;
   signatureResponsable?: string;
   dateCreate?: Date;
+  etatEnvoi?: string;
   // travaux imprevus
   estimationsMateriaux?: string;
   estimationsHeures?: string;
@@ -50,12 +51,41 @@ function toDate(v: unknown): Date | undefined {
 }
 
 function EtatBadge({ etat }: { etat?: string }) {
-  const cfg = etat === "Validé" ? "bg-green-100 text-green-800" : etat === "Refusé" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-800";
+  const cfg = etat === "Validé" ? "bg-green-100 text-green-800"
+    : etat === "Refusé" ? "bg-red-100 text-red-700"
+    : etat === "En cours de traitement" ? "bg-blue-100 text-blue-700"
+    : "bg-yellow-100 text-yellow-800";
   return <span className={cn("badge border-transparent text-xs", cfg)}>{etat ?? "En attente"}</span>;
 }
 
-function DocCard({ doc: item, userName, onEdit }: { doc: DocFH; userName?: string; onEdit: () => void; }) {
+function DocCard({ doc: item, userName, onEdit, onDelete, currentUserId, isUserAdmin }: {
+  doc: DocFH; userName?: string; onEdit: () => void;
+  onDelete: (id: string) => Promise<void>;
+  currentUserId?: string; isUserAdmin?: boolean;
+}) {
   const [open, setOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const confirmTimeout = useRef<ReturnType<typeof setTimeout>>();
+
+  const canDelete = isUserAdmin || (
+    item.refUser?.id === currentUserId &&
+    (!item.etatTraitementDocument || item.etatTraitementDocument === "En attente")
+  );
+
+  const handleDelClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirmDel) {
+      setConfirmDel(true);
+      confirmTimeout.current = setTimeout(() => setConfirmDel(false), 3000);
+      return;
+    }
+    clearTimeout(confirmTimeout.current);
+    setDeleting(true);
+    try { await onDelete(item.id); }
+    finally { setDeleting(false); setConfirmDel(false); }
+  };
+
   return (
     <div className="card overflow-hidden">
       <div className="px-4 py-3 cursor-pointer hover:bg-primary-bg/50" onClick={() => setOpen(!open)}>
@@ -73,8 +103,17 @@ function DocCard({ doc: item, userName, onEdit }: { doc: DocFH; userName?: strin
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {item.etatEnvoi === "Envoyé" && <Send size={12} className="text-blue-500" />}
             <EtatBadge etat={item.etatTraitementDocument} />
             <button onClick={e => { e.stopPropagation(); onEdit(); }} className="p-1.5 rounded-lg text-secondary-text hover:text-primary hover:bg-primary/10"><Pencil size={13} /></button>
+            {canDelete && (
+              <button onClick={handleDelClick} disabled={deleting}
+                title={confirmDel ? "Cliquer à nouveau pour confirmer" : "Supprimer"}
+                className={cn("p-1.5 rounded-lg transition-colors",
+                  confirmDel ? "text-white bg-error rounded-lg" : "text-secondary-text hover:text-error hover:bg-red-50")}>
+                {deleting ? <Spinner size="sm" /> : <Trash2 size={13} />}
+              </button>
+            )}
             {open ? <ChevronUp size={14} className="text-secondary-text" /> : <ChevronDown size={14} className="text-secondary-text" />}
           </div>
         </div>
@@ -97,6 +136,13 @@ function DocCard({ doc: item, userName, onEdit }: { doc: DocFH; userName?: strin
               </div>
             ))}
           </div>
+          {confirmDel && !deleting && (
+            <div className="flex items-center gap-2 pt-2 border-t border-red-200">
+              <p className="text-xs text-error flex-1 font-medium">Confirmer la suppression ?</p>
+              <button onClick={e => { e.stopPropagation(); clearTimeout(confirmTimeout.current); setConfirmDel(false); }}
+                className="text-xs px-2 py-1 rounded-lg border border-alternate text-secondary-text hover:bg-alternate">Annuler</button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -106,48 +152,71 @@ function DocCard({ doc: item, userName, onEdit }: { doc: DocFH; userName?: strin
 export default function FeuillesHeuresPage() {
   const router = useRouter();
   const { firebaseUser, userApp } = useAuthStore();
-  const [docs, setDocs] = useState<DocFH[]>([]);
+  const [rawDocs, setRawDocs] = useState<DocFH[]>([]);
+  const [sentDocs, setSentDocs] = useState<DocFH[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filtreCategorie, setFiltreCategorie] = useState<string | null>(null);
   const [filtreEtat, setFiltreEtat] = useState<string | null>(null);
   const [userNames, setUserNames] = useState<Map<string, string>>(new Map());
 
+  const docs = useMemo(() => {
+    if (!sentDocs.length) return rawDocs;
+    const seen = new Set(rawDocs.map(d => d.id));
+    const extra = sentDocs.filter(d => !seen.has(d.id));
+    return [...rawDocs, ...extra].sort((a, b) => (b.dateCreate?.getTime() ?? 0) - (a.dateCreate?.getTime() ?? 0));
+  }, [rawDocs, sentDocs]);
+
   useEffect(() => {
     if (!firebaseUser) return;
     setLoading(true);
+
+    const mapDoc = (d: any): DocFH => ({
+      id: d.id,
+      refUser: d.data().ref_user as DocumentReference,
+      nom: d.data().nom, prenom: d.data().prenom,
+      mois: d.data().mois, nomDocument: d.data().nom_document,
+      typeDocument: d.data().type_document,
+      categorieDocument: d.data().categorie_document,
+      service: d.data().service,
+      etatTraitementDocument: d.data().etat_traitement_document,
+      etatEnvoi: d.data().etat_envoi,
+      nbJours: d.data().nb_jours,
+      typeAbsence: d.data().type_absence,
+      observations: d.data().observations,
+      debutSemaine: toDate(d.data().debut_semaine),
+      finSemaine: toDate(d.data().fin_semaine),
+      signatureUser: d.data().signature_user,
+      signatureChefEquipe: d.data().signature_chef_equipe,
+      signatureResponsable: d.data().signature_responsable,
+      dateCreate: toDate(d.data().date_create),
+      estimationsMateriaux: d.data().estimations_materiaux,
+      estimationsHeures: d.data().estimations_heures,
+      visaChiffrage: d.data().visa_chiffrage,
+      chiffrageTransmis: d.data().chiffrage_transmis,
+      acceptationTravauxImprevus: d.data().acceptation_travaux_imprevus,
+    });
+
     const userRef = doc(db, "usersapp", firebaseUser.uid);
+    const isCompta = userApp?.service === "Comptabilité";
+
     const q = isAdmin(userApp)
       ? query(collection(db, "Documents_fh"), orderBy("date_create", "desc"))
       : query(collection(db, "Documents_fh"), where("ref_user", "==", userRef), orderBy("date_create", "desc"));
 
-    const unsub = onSnapshot(q, snap => {
-      setDocs(snap.docs.map(d => ({
-        id: d.id,
-        refUser: d.data().ref_user as DocumentReference,
-        nom: d.data().nom, prenom: d.data().prenom,
-        mois: d.data().mois, nomDocument: d.data().nom_document,
-        typeDocument: d.data().type_document,
-        categorieDocument: d.data().categorie_document,
-        service: d.data().service,
-        etatTraitementDocument: d.data().etat_traitement_document,
-        nbJours: d.data().nb_jours,
-        typeAbsence: d.data().type_absence,
-        observations: d.data().observations,
-        debutSemaine: toDate(d.data().debut_semaine),
-        finSemaine: toDate(d.data().fin_semaine),
-        signatureUser: d.data().signature_user,
-        signatureChefEquipe: d.data().signature_chef_equipe,
-        signatureResponsable: d.data().signature_responsable,
-        dateCreate: toDate(d.data().date_create),
-        estimationsMateriaux: d.data().estimations_materiaux,
-        estimationsHeures: d.data().estimations_heures,
-        visaChiffrage: d.data().visa_chiffrage,
-        chiffrageTransmis: d.data().chiffrage_transmis,
-        acceptationTravauxImprevus: d.data().acceptation_travaux_imprevus,
-      })));
+    const unsub1 = onSnapshot(q, snap => {
+      setRawDocs(snap.docs.map(mapDoc));
       setLoading(false);
     });
+
+    // Comptabilité voit également tous les documents envoyés
+    let unsub2: (() => void) | undefined;
+    if (!isAdmin(userApp) && isCompta) {
+      const q2 = query(collection(db, "Documents_fh"), where("etat_envoi", "==", "Envoyé"));
+      unsub2 = onSnapshot(q2, snap => setSentDocs(snap.docs.map(mapDoc)));
+    } else {
+      setSentDocs([]);
+    }
 
     getDocs(collection(db, "usersapp")).then(snap => {
       const m = new Map<string, string>();
@@ -155,7 +224,7 @@ export default function FeuillesHeuresPage() {
       setUserNames(m);
     });
 
-    return () => unsub();
+    return () => { unsub1(); unsub2?.(); };
   }, [firebaseUser, userApp]);
 
   const filtered = useMemo(() => docs.filter(d => {
@@ -169,6 +238,18 @@ export default function FeuillesHeuresPage() {
     return true;
   }), [docs, filtreCategorie, filtreEtat, search, userNames]);
 
+  const handleDeleteDoc = async (id: string) => {
+    const docRef = doc(db, "Documents_fh", id);
+    const chantiersSnap = await getDocs(query(collection(db, "Chantiers_fh"), where("refDocumentFh", "==", docRef)));
+    for (const ch of chantiersSnap.docs) {
+      const sub = await getDocs(collection(db, "Chantiers_fh", ch.id, "details_chantiers_fh"));
+      await Promise.all(sub.docs.map(t => deleteDoc(t.ref)));
+      await deleteDoc(ch.ref);
+    }
+    await deleteDoc(docRef);
+    toast.success("Document supprimé");
+  };
+
   if (loading) return <AppShell><LoadingPage /></AppShell>;
 
   return (
@@ -176,7 +257,7 @@ export default function FeuillesHeuresPage() {
       <div className="animate-page-enter max-w-4xl mx-auto px-4 lg:px-6 py-5">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h1 className="text-2xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Feuilles d&apos;heures</h1>
+            <h1 className="text-2xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Documents</h1>
             <p className="text-sm text-secondary-text mt-0.5">{filtered.length} document{filtered.length !== 1 ? "s" : ""}</p>
           </div>
           <button onClick={() => router.push("/feuilles-heures/nouveau")} className="btn-primary flex items-center gap-2">            <Plus size={16} /><span className="hidden sm:inline">Nouveau document</span>
@@ -196,7 +277,7 @@ export default function FeuillesHeuresPage() {
             <p className="text-xs text-secondary-text mb-1.5">État</p>
             <div className="flex flex-wrap gap-1.5">
               <FilterChip label="Tous" active={!filtreEtat} onClick={() => setFiltreEtat(null)} />
-              {["En attente", "Validé", "Refusé"].map(e => <FilterChip key={e} label={e} active={filtreEtat === e} onClick={() => setFiltreEtat(filtreEtat === e ? null : e)} />)}
+              {["En attente", "En cours de traitement", "Validé", "Refusé"].map(e => <FilterChip key={e} label={e === "En cours de traitement" ? "En cours" : e} active={filtreEtat === e} onClick={() => setFiltreEtat(filtreEtat === e ? null : e)} />)}
             </div>
           </div>
         </div>
@@ -208,7 +289,10 @@ export default function FeuillesHeuresPage() {
             {filtered.map(d => (
               <DocCard key={d.id} doc={d}
                 userName={d.refUser ? userNames.get(d.refUser.id) ?? `${d.prenom} ${d.nom}` : `${d.prenom} ${d.nom}`}
-                onEdit={() => router.push(`/feuilles-heures/${d.id}`)} />
+                onEdit={() => router.push(`/feuilles-heures/${d.id}`)}
+                onDelete={handleDeleteDoc}
+                currentUserId={firebaseUser?.uid}
+                isUserAdmin={isAdmin(userApp)} />
             ))}
           </div>
         )}

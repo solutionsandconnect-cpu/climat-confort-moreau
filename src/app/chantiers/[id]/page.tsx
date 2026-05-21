@@ -6,7 +6,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { doc, DocumentReference } from "firebase/firestore";
+import { doc, DocumentReference, collection, getDocs, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
@@ -22,6 +22,7 @@ import {
   toggleLogementPrioritaire,
   deleteLogement,
   deleteBatiment,
+  deleteChantier,
 } from "@/lib/chantierService";
 import type { Operation, Batiment, Logement, UserApp, ActeursAutre } from "@/types";
 import { LISTE_ETATS } from "@/types";
@@ -55,6 +56,7 @@ import {
   User,
   ChevronDown,
   ChevronUp,
+  AlertCircle,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -95,11 +97,21 @@ export default function FicheChantierPage({
   // Onglet actif
   const [activeTab, setActiveTab] = useState<TabType>("batiments");
 
+  // Suppression chantier
+  const [confirmDeleteChantier, setConfirmDeleteChantier] = useState(false);
+  const [deletingChantier, setDeletingChantier] = useState(false);
+
   // Filtre logements sans bâtiment
   const [filtreEtat, setFiltreEtat] = useState<string | null>(null);
 
   // Bâtiments dépliés
   const [expandedBatiments, setExpandedBatiments] = useState<Set<string>>(new Set());
+
+  // Modal rattachement acteur existant
+  const [showLinkActeur, setShowLinkActeur] = useState(false);
+  const [allActeurs, setAllActeurs] = useState<{ id: string; nom: string; societe?: string; role?: string; tel?: string }[]>([]);
+  const [linkingActeurId, setLinkingActeurId] = useState<string | null>(null);
+  const [acteurSearch, setActeurSearch] = useState("");
 
   // ============================================
   // Chargement initial
@@ -222,6 +234,34 @@ export default function FicheChantierPage({
   };
 
   // ============================================
+  // Rattacher un acteur existant au chantier
+  // ============================================
+  const handleOpenLinkActeur = async () => {
+    const snap = await getDocs(collection(db, "Acteurs_autre"));
+    setAllActeurs(snap.docs.map(d => ({
+      id: d.id,
+      nom: d.data().nom_acteur as string,
+      societe: d.data().qualite_acteur as string,
+      role: d.data().type_acteur as string,
+      tel: d.data().tel_acteur as string,
+    })));
+    setActeurSearch("");
+    setShowLinkActeur(true);
+  };
+
+  const handleLinkActeur = async (acteurId: string) => {
+    setLinkingActeurId(acteurId);
+    try {
+      await updateDoc(doc(db, "Acteurs_autre", acteurId), {
+        operation_ref: doc(db, "Operation", id),
+      });
+      toast.success("Acteur rattaché au chantier !");
+      setShowLinkActeur(false);
+    } catch { toast.error("Erreur lors du rattachement"); }
+    finally { setLinkingActeurId(null); }
+  };
+
+  // ============================================
   // Toggle bâtiment déplié
   // ============================================
   const toggleBatiment = (batId: string) => {
@@ -277,18 +317,41 @@ export default function FicheChantierPage({
             </p>
           </div>
           {isAdmin(userApp) && (
-            <button
-              onClick={() => setEditMode(!editMode)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all",
-                editMode
-                  ? "bg-red-50 text-red-600 border border-red-200"
-                  : "btn-outline"
+            <div className="flex items-center gap-2">
+              {!confirmDeleteChantier ? (
+                <button onClick={() => setConfirmDeleteChantier(true)}
+                  className="p-2 rounded-lg text-secondary-text hover:text-error hover:bg-red-50 transition-all" title="Supprimer le chantier">
+                  <Trash2 size={16} />
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+                  <AlertCircle size={13} className="text-red-600 shrink-0" />
+                  <span className="text-xs text-red-700 font-medium">Supprimer ?</span>
+                  <button disabled={deletingChantier} onClick={async () => {
+                    setDeletingChantier(true);
+                    const result = await deleteChantier(id);
+                    if (result.ok) { toast.success("Chantier supprimé"); router.replace("/dashboard"); }
+                    else { toast.error(result.reason ?? "Impossible de supprimer"); setConfirmDeleteChantier(false); }
+                    setDeletingChantier(false);
+                  }} className="text-xs font-bold text-red-700 hover:text-red-900 ml-1">
+                    {deletingChantier ? "…" : "Oui"}
+                  </button>
+                  <button onClick={() => setConfirmDeleteChantier(false)} className="text-xs text-secondary-text hover:text-primary-text ml-0.5">Non</button>
+                </div>
               )}
-            >
-              {editMode ? <X size={15} /> : <Pencil size={15} />}
-              {editMode ? "Annuler" : "Modifier"}
-            </button>
+              <button
+                onClick={() => setEditMode(!editMode)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all",
+                  editMode
+                    ? "bg-red-50 text-red-600 border border-red-200"
+                    : "btn-outline"
+                )}
+              >
+                {editMode ? <X size={15} /> : <Pencil size={15} />}
+                {editMode ? "Annuler" : "Modifier"}
+              </button>
+            </div>
           )}
         </div>
 
@@ -615,13 +678,22 @@ export default function FicheChantierPage({
         {activeTab === "acteurs" && (
           <div className="space-y-3">
             {isAdmin(userApp) && (
-              <button
-                onClick={() => router.push(`/acteurs/ajout?chantier=${id}`)}
-                className="btn-secondary flex items-center gap-2 text-sm"
-              >
-                <Plus size={15} />
-                Ajouter un acteur
-              </button>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => router.push(`/acteurs/ajout?chantier=${id}`)}
+                  className="btn-secondary flex items-center gap-2 text-sm"
+                >
+                  <Plus size={15} />
+                  Nouvel acteur
+                </button>
+                <button
+                  onClick={handleOpenLinkActeur}
+                  className="btn-outline flex items-center gap-2 text-sm"
+                >
+                  <User size={15} />
+                  Rattacher un acteur existant
+                </button>
+              </div>
             )}
 
             {acteurs.length === 0 ? (
@@ -640,12 +712,12 @@ export default function FicheChantierPage({
                     <div className="flex items-start gap-3">
                       <div className="w-10 h-10 rounded-full bg-secondary/15 flex items-center justify-center shrink-0">
                         <span className="text-secondary-600 font-bold text-sm">
-                          {getInitials(acteur.nom ?? "?", acteur.prenom)}
+                          {getInitials(acteur.nom ?? "?")}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-primary-text text-sm">
-                          {acteur.prenom} {acteur.nom}
+                          {acteur.nom || "—"}
                         </p>
                         {acteur.societe && (
                           <p className="text-xs text-secondary-text">{acteur.societe}</p>
@@ -694,6 +766,41 @@ export default function FicheChantierPage({
           </div>
         )}
       </div>
+
+      {/* Modal : rattacher un acteur existant */}
+      {showLinkActeur && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4"
+          onClick={e => { if (e.target === e.currentTarget) setShowLinkActeur(false); }}>
+          <div className="bg-secondary-bg rounded-2xl w-full max-w-md shadow-xl flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-alternate shrink-0">
+              <p className="font-bold text-primary-text">Rattacher un acteur existant</p>
+              <button onClick={() => setShowLinkActeur(false)} className="p-1 hover:bg-alternate rounded-lg transition-colors"><X size={18} className="text-secondary-text" /></button>
+            </div>
+            <div className="px-5 py-3 border-b border-alternate shrink-0">
+              <input className="input-base" placeholder="Rechercher par nom…" value={acteurSearch} onChange={e => setActeurSearch(e.target.value)} autoFocus />
+            </div>
+            <div className="overflow-y-auto flex-1 divide-y divide-alternate">
+              {allActeurs.filter(a => !acteurSearch || a.nom?.toLowerCase().includes(acteurSearch.toLowerCase())).map(a => (
+                <button key={a.id} onClick={() => handleLinkActeur(a.id)} disabled={!!linkingActeurId}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-primary-bg transition-colors text-left">
+                  <div className="w-9 h-9 rounded-full bg-secondary/15 flex items-center justify-center shrink-0">
+                    <span className="text-secondary-600 font-bold text-xs">{getInitials(a.nom ?? "?")}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-primary-text">{a.nom || "—"}</p>
+                    {(a.societe || a.role) && <p className="text-xs text-secondary-text truncate">{[a.role, a.societe].filter(Boolean).join(" · ")}</p>}
+                    {a.tel && <p className="text-xs text-secondary-text">{a.tel}</p>}
+                  </div>
+                  {linkingActeurId === a.id && <Spinner size="sm" />}
+                </button>
+              ))}
+              {allActeurs.filter(a => !acteurSearch || a.nom?.toLowerCase().includes(acteurSearch.toLowerCase())).length === 0 && (
+                <p className="px-5 py-6 text-sm text-secondary-text text-center">Aucun acteur trouvé</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

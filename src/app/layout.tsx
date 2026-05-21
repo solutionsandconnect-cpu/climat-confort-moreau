@@ -1,17 +1,33 @@
 // src/app/layout.tsx
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/layout/AuthProvider";
 import { Toaster } from "react-hot-toast";
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#EE8B60",
+};
+
 export const metadata: Metadata = {
   title: "Climat & Confort Moreau",
   description: "Application de gestion des interventions et chantiers",
-  icons: {
-    icon: "/Logo Climat et Confort format icone.ico",
-    apple: "/apple-touch-icon.png",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "CCM",
   },
+  icons: {
+    icon: "/logo-ccm.jpg",
+    apple: "/logo-ccm.jpg",
+  },
+  formatDetection: { telephone: false },
 };
 
 export default function RootLayout({

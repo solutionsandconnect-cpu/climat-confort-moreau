@@ -9,6 +9,7 @@ import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import { Spinner } from "@/components/ui";
+import { AdresseSearch } from "@/components/ui/AdresseSearch";
 import { ArrowLeft, Check, Users } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -87,7 +88,7 @@ function AjoutActeurPageContent() {
               <div><label className="text-xs font-medium text-secondary-text">Téléphone</label><input className="input-base mt-1" type="tel" value={tel} onChange={e => setTel(e.target.value)} placeholder="06 00 00 00 00" /></div>
               <div><label className="text-xs font-medium text-secondary-text">Email</label><input className="input-base mt-1" type="email" value={mail} onChange={e => setMail(e.target.value)} placeholder="email@exemple.com" /></div>
             </div>
-            <div><label className="text-xs font-medium text-secondary-text">Adresse</label><input className="input-base mt-1" value={adresse} onChange={e => setAdresse(e.target.value)} placeholder="Adresse complète" /></div>
+            <AdresseSearch value={adresse} onChange={setAdresse} onSelect={setAdresse} label="Adresse" placeholder="Ex: 12 rue de la Paix, Vannes" />
             <div><label className="text-xs font-medium text-secondary-text">Observations</label><textarea className="input-base mt-1 resize-none" rows={2} value={obs} onChange={e => setObs(e.target.value)} /></div>
           </div>
           <button onClick={handleSubmit} disabled={saving || !nom.trim()} className="btn-primary w-full py-3 flex items-center justify-center gap-2">

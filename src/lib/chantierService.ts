@@ -87,6 +87,24 @@ export function subscribeBatiments(
   });
 }
 
+export async function deleteChantier(
+  chantierId: string
+): Promise<{ ok: boolean; reason?: string }> {
+  const opRef = doc(db, "Operation", chantierId);
+  const [batsSnap, logsSnap] = await Promise.all([
+    getDocs(query(collection(db, "Batiment"), where("ref_operation", "==", opRef))),
+    getDocs(query(collection(db, "Logements"), where("operation_ref", "==", opRef))),
+  ]);
+  if (!batsSnap.empty || !logsSnap.empty) {
+    return {
+      ok: false,
+      reason: `Ce chantier contient ${batsSnap.size} bâtiment(s) et ${logsSnap.size} logement(s). Supprimez-les d'abord.`,
+    };
+  }
+  await deleteDoc(opRef);
+  return { ok: true };
+}
+
 export async function deleteBatiment(
   batimentId: string,
   operationId: string
@@ -206,12 +224,11 @@ export function subscribeActeurs(
     callback(
       snap.docs.map((d) => ({
         id: d.id,
-        nom: d.data().nom as string,
-        prenom: d.data().prenom as string,
-        societe: d.data().societe as string,
-        role: d.data().role as string,
-        telephone: d.data().telephone as string,
-        email: d.data().email as string,
+        nom: d.data().nom_acteur as string,
+        societe: d.data().qualite_acteur as string,
+        role: d.data().type_acteur as string,
+        telephone: d.data().tel_acteur as string,
+        email: d.data().mail_acteur as string,
         operationRef: d.data().operation_ref as DocumentReference,
       }))
     );
@@ -236,6 +253,7 @@ export async function getConducteursTravaux(): Promise<UserApp[]> {
     displayName: (d.data().display_name as string) ?? "",
     nom: (d.data().nom as string) ?? "",
     prenom: (d.data().prenom as string) ?? "",
+    photoUrl: (d.data().photo_url as string) ?? undefined,
     actif: (d.data().actif as boolean) ?? true,
   }));
 }

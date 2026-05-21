@@ -154,6 +154,8 @@ export default function NotificationsPage() {
       router.push("/dashboard");
     } else if (item.allerVersPage === "Listes Utilisateurs") {
       router.push("/utilisateurs");
+    } else if (item.allerVersPage === "Intervention" && item.planningId) {
+      router.push(`/interventions/${item.planningId}`);
     }
   };
 

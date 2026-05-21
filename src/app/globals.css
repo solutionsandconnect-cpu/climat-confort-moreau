@@ -138,6 +138,33 @@
   }
 }
 
+/* iOS: prevent auto-zoom on input focus (font-size < 16px triggers zoom) */
+@media (max-width: 640px) {
+  .input-base {
+    font-size: 16px;
+  }
+}
+
+/* Suppress 300ms tap delay and remove grey tap flash on all interactive elements */
+html {
+  touch-action: manipulation;
+}
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Date/time inputs have a browser-imposed min-width that ignores w-full on mobile.
+   min-width: 0 resets this so the field stays within its container. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /* Notification badge pulse */
 .notif-pulse {
   animation: notifPulse 2s ease-in-out infinite;

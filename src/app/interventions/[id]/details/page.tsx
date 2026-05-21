@@ -4,7 +4,7 @@
 // Équivalent de details_demande_widget.dart
 // Photos avant/après + gestion du matériel
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc,
@@ -18,7 +18,8 @@ import { Spinner, EmptyState, LoadingPage } from "@/components/ui";
 import { cn, formatDate } from "@/lib/utils";
 import {
   ArrowLeft, Camera, Plus, Trash2, Check, X, Package,
-  CheckCircle2, AlertCircle, Image as ImageIcon, Upload,
+  CheckCircle2, AlertCircle, Image as ImageIcon, Upload, Pencil,
+  Lock, LockOpen, Download, Maximize2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -61,6 +62,21 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
   const [newDateReception, setNewDateReception] = useState("");
   const [savingMat, setSavingMat] = useState(false);
   const ETATS_MAT = ["En attente", "Commandé", "Receptionné"];
+  const matFirstLoad = useRef(true);
+
+  // Édition matériel existant
+  const [editingMatId, setEditingMatId] = useState<string | null>(null);
+  const [editMatNom, setEditMatNom] = useState("");
+  const [editMatEtat, setEditMatEtat] = useState("");
+  const [editMatLocalisation, setEditMatLocalisation] = useState("");
+  const [editMatDateCommande, setEditMatDateCommande] = useState("");
+  const [editMatDateReception, setEditMatDateReception] = useState("");
+  const [savingEditMat, setSavingEditMat] = useState(false);
+
+  // Verrouillage photos + lightbox
+  const [photosLockedAvant, setPhotosLockedAvant] = useState(true);
+  const [photosLockedApres, setPhotosLockedApres] = useState(true);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const inputAvantRef = useRef<HTMLInputElement>(null);
   const inputApresRef = useRef<HTMLInputElement>(null);
@@ -117,6 +133,15 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
     return () => { unsubAvant(); unsubApres(); unsubMat(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Auto-sync état matériel sur le planning dès que la liste change
+  useEffect(() => {
+    if (matFirstLoad.current) { matFirstLoad.current = false; return; }
+    const manquants = materiels.filter(m => !m.materielOk).length;
+    updateDoc(doc(db, "Planning", id), {
+      etat_materiel: manquants > 0 ? "Matériel manquant" : "Matériel ok",
+    }).catch(console.error);
+  }, [materiels, id]);
 
   // ============================================
   // Upload photo
@@ -202,6 +227,33 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
     } catch { toast.error("Erreur"); }
   };
 
+  const startEditMat = (mat: MaterielItem) => {
+    setEditingMatId(mat.id);
+    setEditMatNom(mat.materielTache ?? "");
+    setEditMatEtat(mat.etatMateriel ?? "En attente");
+    setEditMatLocalisation(mat.localisationReception ?? "");
+    setEditMatDateCommande(mat.dateCommande ? mat.dateCommande.toISOString().split("T")[0] : "");
+    setEditMatDateReception(mat.dateReception ? mat.dateReception.toISOString().split("T")[0] : "");
+  };
+
+  const handleUpdateMateriel = async () => {
+    if (!editingMatId || !editMatNom.trim()) { toast.error("Nom obligatoire"); return; }
+    setSavingEditMat(true);
+    try {
+      await updateDoc(doc(db, "Materiel_tache", editingMatId), {
+        materiel_tache: editMatNom,
+        etat_materiel: editMatEtat,
+        localisation_reception_matos: editMatLocalisation,
+        date_commande: editMatDateCommande ? new Date(editMatDateCommande) : null,
+        date_reception: editMatDateReception ? new Date(editMatDateReception) : null,
+        materiel_ok: editMatEtat === "Receptionné",
+      });
+      toast.success("Matériel mis à jour !");
+      setEditingMatId(null);
+    } catch (e) { console.error(e); toast.error("Erreur"); }
+    finally { setSavingEditMat(false); }
+  };
+
   const updateEtatMaterielPlanning = async () => {
     const manquants = materiels.filter(m => !m.materielOk).length;
     await updateDoc(planningRef, {
@@ -228,45 +280,55 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
         {/* ===== PHOTOS AVANT ===== */}
         <div className="card overflow-hidden mb-4">
           <div className="flex items-center justify-between px-4 py-2.5 bg-primary-bg border-b border-alternate">
-            <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Photos avant intervention</p>
-            <button
-              onClick={() => inputAvantRef.current?.click()}
-              disabled={uploadingAvant}
-              className="flex items-center gap-1.5 text-xs text-primary font-semibold"
-            >
-              {uploadingAvant ? <Spinner size="sm" /> : <Camera size={13} />}
-              Ajouter
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Photos avant intervention</p>
+              {photosAvant.length > 0 && (
+                <button onClick={() => setPhotosLockedAvant(l => !l)}
+                  className={cn("flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all",
+                    photosLockedAvant ? "bg-alternate text-secondary-text border-alternate" : "bg-orange-50 text-orange-600 border-orange-200")}>
+                  {photosLockedAvant ? <Lock size={10} /> : <LockOpen size={10} />}
+                  {photosLockedAvant ? "Verrouillé" : "Déverrouillé"}
+                </button>
+              )}
+            </div>
+            <button onClick={() => inputAvantRef.current?.click()} disabled={uploadingAvant}
+              className="flex items-center gap-1.5 text-xs text-primary font-semibold">
+              {uploadingAvant ? <Spinner size="sm" /> : <Camera size={13} />}Ajouter
             </button>
-            <input
-              ref={inputAvantRef} type="file" accept="image/*" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadPhoto(f, "avant"); e.target.value = ""; }}
-            />
+            <input ref={inputAvantRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadPhoto(f, "avant"); e.target.value = ""; }} />
           </div>
           <div className="p-4">
             {photosAvant.length === 0 ? (
-              <div
-                className="border-2 border-dashed border-alternate rounded-xl p-8 flex flex-col items-center gap-2 cursor-pointer hover:border-primary/40 transition-colors"
-                onClick={() => inputAvantRef.current?.click()}
-              >
+              <div className="border-2 border-dashed border-alternate rounded-xl p-8 flex flex-col items-center gap-2 cursor-pointer hover:border-primary/40 transition-colors"
+                onClick={() => inputAvantRef.current?.click()}>
                 <ImageIcon size={28} className="text-secondary-text" />
                 <p className="text-sm text-secondary-text">Cliquer pour ajouter des photos avant</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {photosAvant.map(p => (
-                  <div key={p.id} className="relative group rounded-xl overflow-hidden aspect-square">
+                  <div key={p.id} className="relative group rounded-xl overflow-hidden aspect-square cursor-pointer"
+                    onClick={() => setLightboxUrl(p.url)}>
                     <img src={p.url} alt="avant" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button onClick={() => handleDeletePhoto(p.id, "avant")} className="p-2 bg-error rounded-full text-white">
-                        <Trash2 size={14} />
-                      </button>
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <div className="p-2 bg-white/20 rounded-full"><Maximize2 size={14} className="text-white" /></div>
+                      {!photosLockedAvant && (
+                        <button onClick={e => { e.stopPropagation(); handleDeletePhoto(p.id, "avant"); }}
+                          className="p-2 bg-error rounded-full text-white">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
+                    {photosLockedAvant && (
+                      <div className="absolute top-1.5 right-1.5 bg-black/50 rounded-full p-1">
+                        <Lock size={10} className="text-white" />
+                      </div>
+                    )}
                   </div>
                 ))}
-                <div
-                  className="border-2 border-dashed border-alternate rounded-xl aspect-square flex items-center justify-center cursor-pointer hover:border-primary/40 transition-colors"
-                  onClick={() => inputAvantRef.current?.click()}
-                >
+                <div className="border-2 border-dashed border-alternate rounded-xl aspect-square flex items-center justify-center cursor-pointer hover:border-primary/40 transition-colors"
+                  onClick={() => inputAvantRef.current?.click()}>
                   <Plus size={20} className="text-secondary-text" />
                 </div>
               </div>
@@ -277,45 +339,55 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
         {/* ===== PHOTOS APRÈS ===== */}
         <div className="card overflow-hidden mb-4">
           <div className="flex items-center justify-between px-4 py-2.5 bg-primary-bg border-b border-alternate">
-            <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Photos après intervention</p>
-            <button
-              onClick={() => inputApresRef.current?.click()}
-              disabled={uploadingApres}
-              className="flex items-center gap-1.5 text-xs text-primary font-semibold"
-            >
-              {uploadingApres ? <Spinner size="sm" /> : <Camera size={13} />}
-              Ajouter
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Photos après intervention</p>
+              {photosApres.length > 0 && (
+                <button onClick={() => setPhotosLockedApres(l => !l)}
+                  className={cn("flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all",
+                    photosLockedApres ? "bg-alternate text-secondary-text border-alternate" : "bg-orange-50 text-orange-600 border-orange-200")}>
+                  {photosLockedApres ? <Lock size={10} /> : <LockOpen size={10} />}
+                  {photosLockedApres ? "Verrouillé" : "Déverrouillé"}
+                </button>
+              )}
+            </div>
+            <button onClick={() => inputApresRef.current?.click()} disabled={uploadingApres}
+              className="flex items-center gap-1.5 text-xs text-primary font-semibold">
+              {uploadingApres ? <Spinner size="sm" /> : <Camera size={13} />}Ajouter
             </button>
-            <input
-              ref={inputApresRef} type="file" accept="image/*" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadPhoto(f, "apres"); e.target.value = ""; }}
-            />
+            <input ref={inputApresRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadPhoto(f, "apres"); e.target.value = ""; }} />
           </div>
           <div className="p-4">
             {photosApres.length === 0 ? (
-              <div
-                className="border-2 border-dashed border-alternate rounded-xl p-8 flex flex-col items-center gap-2 cursor-pointer hover:border-primary/40 transition-colors"
-                onClick={() => inputApresRef.current?.click()}
-              >
+              <div className="border-2 border-dashed border-alternate rounded-xl p-8 flex flex-col items-center gap-2 cursor-pointer hover:border-primary/40 transition-colors"
+                onClick={() => inputApresRef.current?.click()}>
                 <ImageIcon size={28} className="text-secondary-text" />
                 <p className="text-sm text-secondary-text">Cliquer pour ajouter des photos après</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {photosApres.map(p => (
-                  <div key={p.id} className="relative group rounded-xl overflow-hidden aspect-square">
+                  <div key={p.id} className="relative group rounded-xl overflow-hidden aspect-square cursor-pointer"
+                    onClick={() => setLightboxUrl(p.url)}>
                     <img src={p.url} alt="apres" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button onClick={() => handleDeletePhoto(p.id, "apres")} className="p-2 bg-error rounded-full text-white">
-                        <Trash2 size={14} />
-                      </button>
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <div className="p-2 bg-white/20 rounded-full"><Maximize2 size={14} className="text-white" /></div>
+                      {!photosLockedApres && (
+                        <button onClick={e => { e.stopPropagation(); handleDeletePhoto(p.id, "apres"); }}
+                          className="p-2 bg-error rounded-full text-white">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
+                    {photosLockedApres && (
+                      <div className="absolute top-1.5 right-1.5 bg-black/50 rounded-full p-1">
+                        <Lock size={10} className="text-white" />
+                      </div>
+                    )}
                   </div>
                 ))}
-                <div
-                  className="border-2 border-dashed border-alternate rounded-xl aspect-square flex items-center justify-center cursor-pointer hover:border-primary/40 transition-colors"
-                  onClick={() => inputApresRef.current?.click()}
-                >
+                <div className="border-2 border-dashed border-alternate rounded-xl aspect-square flex items-center justify-center cursor-pointer hover:border-primary/40 transition-colors"
+                  onClick={() => inputApresRef.current?.click()}>
                   <Plus size={20} className="text-secondary-text" />
                 </div>
               </div>
@@ -350,7 +422,7 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
                   </select>
                 </div>
                 <input className="input-base" value={newLocalisation} onChange={e => setNewLocalisation(e.target.value)} placeholder="Lieu de livraison / réception" />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs font-medium text-secondary-text">Date commande</label>
                     <input className="input-base mt-1" type="date" value={newDateCommande} onChange={e => setNewDateCommande(e.target.value)} />
@@ -374,31 +446,70 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
             ) : (
               <div className="space-y-2">
                 {materiels.map(mat => (
-                  <div key={mat.id} className={cn("flex items-start gap-3 p-3 rounded-xl border transition-all",
-                    mat.materielOk ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>
-                    <button
-                      onClick={() => handleToggleMaterielOk(mat)}
-                      className={cn("w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
-                        mat.materielOk ? "bg-green-500 border-green-500 text-white" : "border-red-400")}
-                    >
-                      {mat.materielOk && <Check size={12} />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className={cn("text-sm font-semibold", mat.materielOk ? "text-green-800 line-through" : "text-red-800")}>
-                        {mat.materielTache || "Sans nom"}
-                      </p>
-                      {mat.etatMateriel && (
-                        <p className={cn("text-xs mt-0.5", mat.materielOk ? "text-green-600" : "text-red-600")}>
-                          {mat.etatMateriel}
-                        </p>
-                      )}
-                      {mat.localisationReception && (
-                        <p className="text-xs text-secondary-text mt-0.5">{mat.localisationReception}</p>
-                      )}
-                    </div>
-                    <button onClick={() => handleDeleteMateriel(mat.id)} className="p-1.5 rounded-lg text-secondary-text hover:text-error hover:bg-red-100 transition-all shrink-0">
-                      <Trash2 size={13} />
-                    </button>
+                  <div key={mat.id}>
+                    {editingMatId === mat.id ? (
+                      <div className="card p-3 space-y-2 border-primary/20 animate-slide-up">
+                        <input className="input-base" value={editMatNom} onChange={e => setEditMatNom(e.target.value)} placeholder="Nom *" />
+                        <select className="input-base" value={editMatEtat} onChange={e => setEditMatEtat(e.target.value)}>
+                          {ETATS_MAT.map(e => <option key={e} value={e}>{e}</option>)}
+                        </select>
+                        <input className="input-base" value={editMatLocalisation} onChange={e => setEditMatLocalisation(e.target.value)} placeholder="Lieu de livraison" />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs font-medium text-secondary-text">Date commande</label>
+                            <input className="input-base mt-1" type="date" value={editMatDateCommande} onChange={e => setEditMatDateCommande(e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-secondary-text">Date réception</label>
+                            <input className="input-base mt-1" type="date" value={editMatDateReception} onChange={e => setEditMatDateReception(e.target.value)} />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={handleUpdateMateriel} disabled={savingEditMat} className="btn-primary flex items-center gap-1.5 flex-1 py-2 text-sm">
+                            {savingEditMat ? <Spinner size="sm" /> : <Check size={13} />}Enregistrer
+                          </button>
+                          <button onClick={() => setEditingMatId(null)} className="btn-outline px-3 py-2"><X size={13} /></button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={cn("flex items-start gap-3 p-3 rounded-xl border transition-all",
+                        mat.materielOk ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>
+                        <button
+                          onClick={() => handleToggleMaterielOk(mat)}
+                          className={cn("w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
+                            mat.materielOk ? "bg-green-500 border-green-500 text-white" : "border-red-400")}
+                        >
+                          {mat.materielOk && <Check size={12} />}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn("text-sm font-semibold", mat.materielOk ? "text-green-800 line-through" : "text-red-800")}>
+                            {mat.materielTache || "Sans nom"}
+                          </p>
+                          {mat.etatMateriel && (
+                            <p className={cn("text-xs mt-0.5", mat.materielOk ? "text-green-600" : "text-red-600")}>
+                              {mat.etatMateriel}
+                            </p>
+                          )}
+                          {mat.localisationReception && (
+                            <p className="text-xs text-secondary-text mt-0.5">{mat.localisationReception}</p>
+                          )}
+                          {(mat.dateCommande || mat.dateReception) && (
+                            <div className="flex flex-wrap gap-3 mt-1.5">
+                              {mat.dateCommande && <span className="text-xs text-secondary-text">Cde : {formatDate(mat.dateCommande)}</span>}
+                              {mat.dateReception && <span className="text-xs text-secondary-text">Rcpt : {formatDate(mat.dateReception)}</span>}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => startEditMat(mat)} className="p-1.5 rounded-lg text-secondary-text hover:text-primary hover:bg-primary/10 transition-all">
+                            <Pencil size={13} />
+                          </button>
+                          <button onClick={() => handleDeleteMateriel(mat.id)} className="p-1.5 rounded-lg text-secondary-text hover:text-error hover:bg-red-100 transition-all">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -406,17 +517,28 @@ export default function InterventionDetailsPage({ params }: { params: { id: stri
           </div>
         </div>
 
-        {/* Bouton mise à jour état matériel */}
-        {materiels.length > 0 && (
-          <button
-            onClick={updateEtatMaterielPlanning}
-            className="btn-outline w-full flex items-center justify-center gap-2 mb-4"
-          >
-            <Check size={16} />
-            Mettre à jour l&apos;état matériel sur l&apos;intervention
-          </button>
-        )}
       </div>
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col" onClick={() => setLightboxUrl(null)}>
+          <div className="flex items-center justify-between px-4 py-3 shrink-0" onClick={e => e.stopPropagation()}>
+            <p className="text-white text-sm font-semibold">Photo</p>
+            <div className="flex items-center gap-2">
+              <a href={lightboxUrl} download target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 text-white rounded-lg text-xs font-semibold hover:bg-white/30 transition-colors">
+                <Download size={13} />Télécharger
+              </a>
+              <button onClick={() => setLightboxUrl(null)} className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors">
+                <X size={18} className="text-white" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4 min-h-0" onClick={e => e.stopPropagation()}>
+            <img src={lightboxUrl} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

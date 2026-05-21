@@ -155,25 +155,30 @@ export function subscribePlanningByLogement(
   callback: (items: PlanningLogement[]) => void
 ) {
   const logRef = doc(db, "Logements", logementId);
+  // Pas d'orderBy pour éviter l'index composite Firestore — tri côté client
   const q = query(
     collection(db, "Planning"),
-    where("ref_logement", "==", logRef),
-    orderBy("date_rdv", "desc")
+    where("ref_logement", "==", logRef)
   );
   return onSnapshot(q, (snap) => {
-    callback(
-      snap.docs.map((d) => ({
-        id: d.id,
-        dateRdv: firestoreTimestampToDate(d.data().date_rdv as Timestamp),
-        heureRdv: firestoreTimestampToDate(d.data().heure_rdv as Timestamp),
-        heureFinRdv: firestoreTimestampToDate(d.data().heure_fin_rdv as Timestamp),
-        statutRdv: d.data().statut_rdv as string,
-        descriptifTravaux: d.data().descriptif_travaux as string,
-        signatureClient: d.data().signature_client as string,
-        signatureTechnicien: d.data().signature_technicien as string,
-        refUsers: d.data().ref_users as DocumentReference | undefined,
-      }))
-    );
+    const items = snap.docs.map((d) => ({
+      id: d.id,
+      dateRdv: firestoreTimestampToDate(d.data().date_rdv as Timestamp),
+      heureRdv: firestoreTimestampToDate(d.data().heure_rdv as Timestamp),
+      heureFinRdv: firestoreTimestampToDate(d.data().heure_fin_rdv as Timestamp),
+      statutRdv: d.data().statut_rdv as string,
+      descriptifTravaux: d.data().descriptif_travaux as string,
+      typeDemande: d.data().type_demande as string,
+      signatureClient: d.data().signature_client as string,
+      signatureTechnicien: d.data().signature_technicien as string,
+      refUsers: d.data().ref_users as DocumentReference | undefined,
+    }));
+    // Tri côté client : plus récent en premier
+    items.sort((a, b) => (b.dateRdv?.getTime() ?? 0) - (a.dateRdv?.getTime() ?? 0));
+    callback(items);
+  }, (err) => {
+    console.warn("subscribePlanningByLogement error:", err.message);
+    callback([]);
   });
 }
 

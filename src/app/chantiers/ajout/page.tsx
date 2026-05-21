@@ -14,6 +14,7 @@ import { getConducteursTravaux } from "@/lib/chantierService";
 import type { UserApp } from "@/types";
 import { Spinner } from "@/components/ui";
 import { ArrowLeft, Building2, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 export default function AjoutChantierPage() {
@@ -104,13 +105,31 @@ export default function AjoutChantierPage() {
           </div>
 
           <div>
-            <label className="text-xs font-bold text-secondary-text uppercase tracking-wide">Conducteur de travaux</label>
-            <select className="input-base mt-1.5" value={conducteurId} onChange={e => setConducteurId(e.target.value)}>
-              <option value="">— Sélectionner un conducteur —</option>
-              {conducteurs.map(c => (
-                <option key={c.id} value={c.id}>{c.displayName || `${c.prenom} ${c.nom}`}</option>
-              ))}
-            </select>
+            <label className="text-xs font-bold text-secondary-text uppercase tracking-wide block mb-2">Conducteur de travaux</label>
+            <div className="space-y-2">
+              {conducteurs.length === 0 && <p className="text-sm text-secondary-text italic">Aucun conducteur disponible.</p>}
+              {conducteurs.map(c => {
+                const nom = c.displayName || `${c.prenom} ${c.nom}`;
+                const selected = conducteurId === c.id;
+                return (
+                  <button key={c.id} type="button" onClick={() => setConducteurId(selected ? "" : c.id)}
+                    className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border-2 transition-all text-left",
+                      selected ? "border-primary bg-primary/5" : "border-alternate hover:border-primary/40")}>
+                    <div className={cn("w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center", selected ? "border-primary" : "border-alternate")}>
+                      {selected && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    {c.photoUrl ? (
+                      <img src={c.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+                        <span className="text-sm font-bold text-primary">{nom.charAt(0).toUpperCase()}</span>
+                      </div>
+                    )}
+                    <span className="text-sm font-semibold text-primary-text">{nom}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="pt-1 text-xs text-secondary-text bg-primary-bg rounded-lg px-3 py-2">

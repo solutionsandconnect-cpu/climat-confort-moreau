@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { doc, getDoc, DocumentReference, addDoc, collection, getDocs, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, DocumentReference, addDoc, collection, getDocs, getCountFromServer, query, orderBy, limit, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
@@ -57,40 +57,31 @@ function AjoutInterventionPageContent() {
   useEffect(() => {
     async function loadData() {
       setLoading(true);
-      // Charger infos logement
-      if (logementId) {
-        const snap = await getDoc(doc(db, "Logements", logementId));
-        if (snap.exists()) {
-          setLogementInfo({
-            num: snap.data().num_logement as string ?? "—",
-            occupant: snap.data().nom_occupant as string ?? "—",
-          });
-        }
+      // Tout charger en parallèle pour accélérer
+      const [logSnap, chantierSnap, planningSnap, acteursSnap] = await Promise.all([
+        logementId ? getDoc(doc(db, "Logements", logementId)) : Promise.resolve(null),
+        chantierId ? getDoc(doc(db, "Operation", chantierId)) : Promise.resolve(null),
+        getDocs(query(collection(db, "Planning"), orderBy("num_quitus", "desc"), limit(20))),
+        getDocs(collection(db, "Acteurs_autre")),
+      ]);
+
+      if (logSnap?.exists()) {
+        setLogementInfo({
+          num: (logSnap.data().num_logement as string) ?? "—",
+          occupant: (logSnap.data().nom_occupant as string) ?? "—",
+        });
       }
-      // Charger infos chantier
-      if (chantierId) {
-        const snap = await getDoc(doc(db, "Operation", chantierId));
-        if (snap.exists()) {
-          setChantierInfo({
-            nom: snap.data().nom_chantier as string ?? "—",
-            num: snap.data().num_chantier as string ?? "—",
-          });
-        }
+      if (chantierSnap?.exists()) {
+        setChantierInfo({
+          nom: (chantierSnap.data().nom_chantier as string) ?? "—",
+          num: (chantierSnap.data().num_chantier as string) ?? "—",
+        });
       }
-      // Charger plannings existants (pour référence quitus)
-      if (logementId) {
-        const logRef = doc(db, "Logements", logementId);
-        const q = query(collection(db, "Planning"), orderBy("num_quitus", "desc"));
-        const snap = await getDocs(q);
-        const items = snap.docs.map(d => ({
-          id: d.id,
-          quitusNumero: d.data().quitus_numero as string,
-          numQuitus: d.data().num_quitus as number,
-        }));
-        setPlanningsExistants(items.slice(0, 20));
-      }
-      // Charger acteurs pour facturation
-      const acteursSnap = await getDocs(collection(db, "Acteurs_autre"));
+      setPlanningsExistants(planningSnap.docs.map(d => ({
+        id: d.id,
+        quitusNumero: d.data().quitus_numero as string,
+        numQuitus: d.data().num_quitus as number,
+      })));
       setActeursFacturation(acteursSnap.docs.map(d => ({
         id: d.id, nom: d.data().nom_acteur as string,
         mail: d.data().mail_acteur as string, adresse: d.data().adresse_acteur as string,
@@ -111,9 +102,9 @@ function AjoutInterventionPageContent() {
 
     setSaving(true);
     try {
-      // Compter le nombre de plannings pour le numéro de quitus
-      const countSnap = await getDocs(collection(db, "Planning"));
-      const numQuitus = countSnap.size + 1;
+      // Utilise getCountFromServer (agrégat serveur, ne charge pas tous les docs)
+      const countSnap = await getCountFromServer(collection(db, "Planning"));
+      const numQuitus = countSnap.data().count + 1;
 
       const data: Record<string, unknown> = {
         type_demande: typeDemande,
@@ -141,6 +132,15 @@ function AjoutInterventionPageContent() {
       }
 
       const ref = await addDoc(collection(db, "Planning"), data);
+      // Note auto : création de l'intervention
+      await addDoc(collection(db, "Notes_travaux"), {
+        notes: `Intervention créée — ${typeDemande}${descriptif ? ` : ${descriptif.slice(0, 80)}` : ""}`,
+        type_note: "Historique",
+        ref_planning: ref,
+        auto: "Oui",
+        date_create: serverTimestamp(),
+        note_par: doc(db, "usersapp", firebaseUser.uid),
+      });
       toast.success("Intervention créée !");
       router.replace(`/interventions/${ref.id}`);
     } catch (e) { console.error(e); toast.error("Erreur lors de la création"); }
@@ -250,19 +250,18 @@ function AjoutInterventionPageContent() {
           {facturable === "Travaux facturables" && (
             <div className="card p-4 space-y-3">
               <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Informations de facturation</p>
-              {acteursFacturation.length > 0 && (
-                <div>
-                  <label className="text-xs font-medium text-secondary-text">Sélectionner un acteur existant</label>
-                  <select className="input-base mt-1" value={acteurFacturationId} onChange={e => {
-                    setActeurFacturationId(e.target.value);
-                    const a = acteursFacturation.find(a => a.id === e.target.value);
-                    if (a) { setNomFacturation(a.nom ?? ""); setMailFacturation(a.mail ?? ""); setInfosFacturation(a.adresse ?? ""); }
-                  }}>
-                    <option value="">— Ou saisir manuellement —</option>
-                    {acteursFacturation.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="text-xs font-medium text-secondary-text">Acteur existant {acteursFacturation.length > 0 ? `(${acteursFacturation.length})` : ""}</label>
+                <select className="input-base mt-1" value={acteurFacturationId} onChange={e => {
+                  setActeurFacturationId(e.target.value);
+                  const a = acteursFacturation.find(a => a.id === e.target.value);
+                  if (a) { setNomFacturation(a.nom ?? ""); setMailFacturation(a.mail ?? ""); }
+                  else { setNomFacturation(""); setMailFacturation(""); }
+                }}>
+                  <option value="">— Sélectionner un acteur ou saisir manuellement —</option>
+                  {acteursFacturation.map(a => <option key={a.id} value={a.id}>{a.nom}</option>)}
+                </select>
+              </div>
               <div>
                 <label className="text-xs font-medium text-secondary-text">Nom facturation <span className="text-error">*</span></label>
                 <input className="input-base mt-1" value={nomFacturation} onChange={e => setNomFacturation(e.target.value)} placeholder="Nom du destinataire" />

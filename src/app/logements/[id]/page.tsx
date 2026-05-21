@@ -5,8 +5,10 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { doc, onSnapshot, updateDoc, getDocs, query, where, collection, DocumentReference, getDoc, Timestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { doc, onSnapshot, updateDoc, getDocs, query, where, collection, DocumentReference, getDoc, addDoc, serverTimestamp, Timestamp, deleteDoc } from "firebase/firestore";
+import { ref as storageRef, deleteObject } from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
+import { arreterWorkflowByPlanning } from "@/lib/workflowRelanceService";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import { subscribePlanningByLogement, subscribeRelancesByLogement, type PlanningLogement, type RelanceLogement } from "@/lib/logementService";
@@ -16,7 +18,8 @@ import { BadgeEtat, BadgeFacturation, BadgePrioritaire, EmptyState, LoadingPage,
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { ArrowLeft, Pencil, Check, X, Phone, Mail, Home, Building2, Calendar, Clock, Star, StarOff, User, Layers, CheckCircle2, AlertCircle, Plus, History } from "lucide-react";
+import { ArrowLeft, Pencil, Check, X, Phone, Mail, Home, Building2, Calendar, Clock, Star, StarOff, User, Layers, CheckCircle2, AlertCircle, Plus, History, MapPin, Trash2, AlertTriangle, MessageSquare } from "lucide-react";
+import { AdresseSearch } from "@/components/ui/AdresseSearch";
 import toast from "react-hot-toast";
 
 const TYPES_CONTACT = ["MOA", "MOE", "Syndic", "Cabinet", "Autre"];
@@ -41,32 +44,53 @@ function InfoRow({ icon, label, value, href, emptyText = "Non renseigné" }: {
   return <div>{content}</div>;
 }
 
-function PlanningCard({ item, onClick }: { item: PlanningLogement; onClick: () => void }) {
+function PlanningCard({ item, onClick, canDelete, showConfirm, onRequestDelete, onConfirmDelete }: {
+  item: PlanningLogement; onClick: () => void;
+  canDelete?: boolean; showConfirm?: boolean;
+  onRequestDelete?: () => void; onConfirmDelete?: () => void;
+}) {
   return (
-    <div className="card p-3.5 cursor-pointer hover:shadow-card-hover transition-shadow" onClick={onClick}>
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <p className="text-sm font-semibold text-primary-text">
-            {item.dateRdv ? format(item.dateRdv, "EEEE dd MMMM yyyy", { locale: fr }) : "Date non définie"}
-          </p>
-          {item.heureRdv && (
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <Clock size={12} className="text-secondary-text" />
-              <span className="text-xs text-secondary-text">{format(item.heureRdv, "HH:mm")}{item.heureFinRdv && ` – ${format(item.heureFinRdv, "HH:mm")}`}</span>
-            </div>
-          )}
-        </div>
-        <span className={cn("badge border text-xs", item.statutRdv === "Réalisé" ? "bg-green-100 text-green-800 border-green-200" : item.statutRdv === "Annulé" ? "bg-red-100 text-red-700 border-red-200" : "bg-yellow-100 text-yellow-800 border-yellow-200")}>
-          {item.statutRdv ?? "En attente"}
-        </span>
-      </div>
-      {item.descriptifTravaux && <p className="text-xs text-secondary-text bg-primary-bg rounded-lg px-3 py-2 mb-2">{item.descriptifTravaux}</p>}
-      <div className="flex gap-2">
-        {[{ label: "Client", sig: item.signatureClient }, { label: "Technicien", sig: item.signatureTechnicien }].map(s => (
-          <div key={s.label} className={cn("flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg", s.sig ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>
-            {s.sig ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}{s.label}
+    <div className="card overflow-hidden hover:shadow-card-hover transition-shadow">
+      <div className="p-3.5">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
+            <p className="text-sm font-semibold text-primary-text">
+              {item.dateRdv ? format(item.dateRdv, "EEEE dd MMMM yyyy", { locale: fr }) : "Date non définie"}
+            </p>
+            {item.heureRdv && (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <Clock size={12} className="text-secondary-text" />
+                <span className="text-xs text-secondary-text">{format(item.heureRdv, "HH:mm")}{item.heureFinRdv && ` – ${format(item.heureFinRdv, "HH:mm")}`}</span>
+              </div>
+            )}
           </div>
-        ))}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={cn("badge border text-xs", item.statutRdv === "Réalisé" ? "bg-green-100 text-green-800 border-green-200" : item.statutRdv === "Annulé" ? "bg-red-100 text-red-700 border-red-200" : "bg-yellow-100 text-yellow-800 border-yellow-200")}>
+              {item.statutRdv ?? "En attente"}
+            </span>
+            {canDelete && (showConfirm ? (
+              <button onClick={e => { e.stopPropagation(); onConfirmDelete?.(); }}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-error text-white text-xs font-semibold">
+                <AlertTriangle size={11} />Confirmer
+              </button>
+            ) : (
+              <button onClick={e => { e.stopPropagation(); onRequestDelete?.(); }}
+                className="p-1.5 rounded-lg text-secondary-text hover:text-error hover:bg-red-50 transition-all" title="Supprimer">
+                <Trash2 size={13} />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="cursor-pointer" onClick={onClick}>
+          {item.descriptifTravaux && <p className="text-xs text-secondary-text bg-primary-bg rounded-lg px-3 py-2 mb-2">{item.descriptifTravaux}</p>}
+          <div className="flex gap-2">
+            {[{ label: "Client", sig: item.signatureClient }, { label: "Technicien", sig: item.signatureTechnicien }].map(s => (
+              <div key={s.label} className={cn("flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg", s.sig ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>
+                {s.sig ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}{s.label}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -76,7 +100,7 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
   const { id } = params;
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { userApp } = useAuthStore();
+  const { userApp, firebaseUser } = useAuthStore();
   const chantierId = searchParams.get("chantier");
 
   const [logement, setLogement] = useState<Logement | null>(null);
@@ -107,6 +131,18 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
   const [editPrioritaire, setEditPrioritaire] = useState(false);
   const [editActeurId, setEditActeurId] = useState("");
   const [loadingActeurs, setLoadingActeurs] = useState(false);
+  const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
+  const [deletingPlan, setDeletingPlan] = useState(false);
+
+  // Création acteur inline
+  const [showCreateActeur, setShowCreateActeur] = useState(false);
+  const [newActeurNom, setNewActeurNom] = useState("");
+  const [newActeurQualite, setNewActeurQualite] = useState("");
+  const [newActeurTel, setNewActeurTel] = useState("");
+  const [newActeurMail, setNewActeurMail] = useState("");
+  const [newActeurAdresse, setNewActeurAdresse] = useState("");
+  const [newActeurObs, setNewActeurObs] = useState("");
+  const [savingActeur, setSavingActeur] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -173,6 +209,31 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
       });
   }, [editType, editOccupe]);
 
+  const handleCreateActeur = async () => {
+    if (!newActeurNom.trim()) { toast.error("Le nom est obligatoire"); return; }
+    setSavingActeur(true);
+    try {
+      const data: Record<string, unknown> = {
+        type_acteur: editType, nom_acteur: newActeurNom, qualite_acteur: newActeurQualite,
+        tel_acteur: newActeurTel, mail_acteur: newActeurMail, adresse_acteur: newActeurAdresse,
+        observations: newActeurObs, date_create: serverTimestamp(),
+        create_par: firebaseUser ? doc(db, "usersapp", firebaseUser.uid) : null,
+      };
+      if (logement?.operationRef) data.operation_ref = logement.operationRef;
+      const ref = await addDoc(collection(db, "Acteurs_autre"), data);
+      // Auto-sélectionner le nouvel acteur
+      const newActeur = { id: ref.id, nomActeur: newActeurNom, telActeur: newActeurTel, mailActeur: newActeurMail, qualiteActeur: newActeurQualite };
+      setActeursDisponibles(prev => [...prev, newActeur]);
+      setEditActeurId(ref.id);
+      setEditNom(newActeurNom); setEditTel(newActeurTel); setEditMail(newActeurMail);
+      if (newActeurQualite) setEditRole(newActeurQualite);
+      setShowCreateActeur(false);
+      setNewActeurNom(""); setNewActeurQualite(""); setNewActeurTel(""); setNewActeurMail(""); setNewActeurAdresse(""); setNewActeurObs("");
+      toast.success("Acteur créé et sélectionné !");
+    } catch (e) { console.error(e); toast.error("Erreur lors de la création"); }
+    finally { setSavingActeur(false); }
+  };
+
   const handleSave = async () => {
     if (!logement) return;
     setSaving(true);
@@ -195,6 +256,17 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
         etat_quitus: editEtatQuitus,
         priorite_logement: editPrioritaire,
       });
+      // Sync acteur → chantier si pas déjà lié
+      if (editActeurId && logement.operationRef) {
+        try {
+          const actSnap = await getDoc(doc(db, "Acteurs_autre", editActeurId));
+          if (actSnap.exists() && !actSnap.data().operation_ref) {
+            await updateDoc(doc(db, "Acteurs_autre", editActeurId), {
+              operation_ref: logement.operationRef,
+            });
+          }
+        } catch (e) { console.error(e); }
+      }
       setEditMode(false);
       toast.success("Logement mis à jour !");
     } catch (e) { console.error(e); toast.error("Erreur lors de la sauvegarde"); }
@@ -202,6 +274,35 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
   };
 
   const opId = logement?.operationRef ? (logement.operationRef as DocumentReference).id : undefined;
+
+  const deleteStorageUrl = async (url: string) => {
+    if (!url || !url.includes("firebasestorage.googleapis.com")) return;
+    try {
+      const path = decodeURIComponent(url.split("/o/")[1].split("?")[0]);
+      await deleteObject(storageRef(storage, path));
+    } catch {}
+  };
+
+  const handleDeletePlanning = async (planId: string, plan: PlanningLogement) => {
+    setDeletingPlan(true);
+    try {
+      const planRef = doc(db, "Planning", planId);
+      const photosAvantSnap = await getDocs(collection(db, "Planning", planId, "Photo_avant"));
+      await Promise.all(photosAvantSnap.docs.map(async d => { await deleteStorageUrl(d.data().photos_avant as string); await deleteDoc(d.ref); }));
+      const photosApresSnap = await getDocs(collection(db, "Planning", planId, "Photo_apres"));
+      await Promise.all(photosApresSnap.docs.map(async d => { await deleteStorageUrl(d.data().photos_apres as string); await deleteDoc(d.ref); }));
+      if (plan.signatureClient) await deleteStorageUrl(plan.signatureClient);
+      if (plan.signatureTechnicien) await deleteStorageUrl(plan.signatureTechnicien);
+      const matSnap = await getDocs(query(collection(db, "Materiel_tache"), where("planning_ref", "==", planRef)));
+      await Promise.all(matSnap.docs.map(d => deleteDoc(d.ref)));
+      const notesSnap = await getDocs(query(collection(db, "Notes_travaux"), where("ref_planning", "==", planRef)));
+      await Promise.all(notesSnap.docs.map(d => deleteDoc(d.ref)));
+      await arreterWorkflowByPlanning(planId).catch(() => {});
+      await deleteDoc(planRef);
+      toast.success("Intervention supprimée");
+    } catch { toast.error("Erreur lors de la suppression"); }
+    finally { setDeletingPlan(false); setConfirmDeletePlanId(null); }
+  };
 
   if (loading) return <AppShell><LoadingPage /></AppShell>;
   if (!logement) return null;
@@ -211,7 +312,10 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
       <div className="animate-page-enter max-w-3xl mx-auto px-4 lg:px-6 py-5">
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
-          <button onClick={() => router.push(chantierId ? `/chantiers/${chantierId}` : "/dashboard")}
+          <button onClick={() => {
+              const destId = chantierId ?? opId;
+              router.push(destId ? `/chantiers/${destId}` : "/dashboard");
+            }}
             className="p-2 rounded-lg hover:bg-alternate text-secondary-text hover:text-primary transition-all">
             <ArrowLeft size={20} />
           </button>
@@ -220,6 +324,11 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
               Logement {logement.numLogement || "—"}
             </h1>
             <p className="text-xs text-secondary-text">{batiment?.nomBatiment && `${batiment.nomBatiment} · `}Créé le {formatDate(logement.dateCreate)}</p>
+            {opId && (
+              <button onClick={() => router.push(`/chantiers/${opId}`)} className="text-xs text-primary font-semibold flex items-center gap-1 mt-0.5 hover:underline">
+                <Building2 size={11} />Voir le chantier
+              </button>
+            )}
           </div>
           {isAdmin(userApp) && (
             <button onClick={() => editMode ? (setEditMode(false)) : setEditMode(true)}
@@ -244,6 +353,7 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
           <BadgePrioritaire prioritaire={logement.prioritaire} />
         </div>
 
+
         {/* MODE LECTURE */}
         {!editMode && (
           <div className="space-y-4">
@@ -256,8 +366,33 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
                 <InfoRow icon={<User size={15} />} label="Occupant" value={logement.nomOccupant} />
                 <InfoRow icon={<User size={15} />} label="Type contact" value={logement.typeContact} />
                 {logement.roleContact && <InfoRow icon={<User size={15} />} label="Rôle / Précision" value={logement.roleContact} />}
-                <InfoRow icon={<Phone size={15} />} label="Téléphone" value={logement.telOccupant} href={logement.telOccupant ? `tel:${logement.telOccupant}` : undefined} />
-                <InfoRow icon={<Mail size={15} />} label="Email" value={logement.mailOccupant} href={logement.mailOccupant ? `mailto:${logement.mailOccupant}` : undefined} />
+                {/* Téléphone + actions */}
+                <div className="flex items-center gap-3 py-3 px-4">
+                  <span className="text-secondary-text shrink-0"><Phone size={15} /></span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-secondary-text">Téléphone</p>
+                    {logement.telOccupant ? (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        <span className="text-sm font-medium text-primary-text">{logement.telOccupant}</span>
+                        <a href={`tel:${logement.telOccupant}`} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-green-50 text-green-700 text-xs font-semibold border border-green-200 hover:bg-green-100 transition-colors"><Phone size={10} />Appeler</a>
+                        <a href={`sms:${logement.telOccupant}`} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-200 hover:bg-blue-100 transition-colors"><MessageSquare size={10} />SMS</a>
+                      </div>
+                    ) : <p className="text-sm text-secondary-text italic mt-0.5">Non renseigné</p>}
+                  </div>
+                </div>
+                {/* Email + action */}
+                <div className="flex items-center gap-3 py-3 px-4">
+                  <span className="text-secondary-text shrink-0"><Mail size={15} /></span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-secondary-text">Email</p>
+                    {logement.mailOccupant ? (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        <span className="text-sm font-medium text-primary-text break-all">{logement.mailOccupant}</span>
+                        <a href={`mailto:${logement.mailOccupant}`} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-primary/10 text-primary text-xs font-semibold border border-primary/20 hover:bg-primary/20 transition-colors"><Mail size={10} />E-mail</a>
+                      </div>
+                    ) : <p className="text-sm text-secondary-text italic mt-0.5">Non renseigné</p>}
+                  </div>
+                </div>
               </div>
             </div>
             <div className="card overflow-hidden">
@@ -288,7 +423,17 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
               </div>
               {plannings.length === 0
                 ? <EmptyState icon={<Calendar size={24} />} title="Aucune intervention" description="Aucune intervention planifiée." />
-                : <div className="space-y-2">{plannings.map(p => <PlanningCard key={p.id} item={p} onClick={() => router.push(`/interventions/${p.id}`)} />)}</div>
+                : <div className="space-y-2">{plannings.map(p => (
+                    <PlanningCard
+                      key={p.id}
+                      item={p}
+                      onClick={() => router.push(`/interventions/${p.id}`)}
+                      canDelete={isAdmin(userApp)}
+                      showConfirm={confirmDeletePlanId === p.id}
+                      onRequestDelete={() => { setConfirmDeletePlanId(p.id); setTimeout(() => setConfirmDeletePlanId(null), 3000); }}
+                      onConfirmDelete={() => !deletingPlan && handleDeletePlanning(p.id, p)}
+                    />
+                  ))}</div>
               }
             </div>
 
@@ -388,16 +533,51 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
               </div>
               {!editOccupe && editType && editType !== "Autre" && (
                 <div>
-                  <label className="text-xs font-medium text-secondary-text">Acteur ({editType})</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-secondary-text">Acteur ({editType})</label>
+                    <button type="button" onClick={() => setShowCreateActeur(true)}
+                      className="text-xs text-primary font-semibold flex items-center gap-1">
+                      <Plus size={11} />Créer
+                    </button>
+                  </div>
                   {loadingActeurs ? <div className="flex justify-center py-2"><Spinner /></div> : (
-                    <select className="input-base mt-1" value={editActeurId}
+                    <select className="input-base" value={editActeurId}
                       onChange={e => {
                         const a = acteursDisponibles.find(a => a.id === e.target.value);
                         if (a) { setEditActeurId(a.id); setEditNom(a.nomActeur ?? ""); setEditTel(a.telActeur ?? ""); setEditMail(a.mailActeur ?? ""); if (a.qualiteActeur) setEditRole(a.qualiteActeur); }
+                        else { setEditActeurId(""); }
                       }}>
                       <option value="">— Sélectionner —</option>
                       {acteursDisponibles.map(a => <option key={a.id} value={a.id}>{a.nomActeur}</option>)}
                     </select>
+                  )}
+                  {/* Modal création acteur */}
+                  {showCreateActeur && (
+                    <div className="fixed inset-0 z-[60] bg-black/50 flex items-end sm:items-center justify-center sm:p-4"
+                      onClick={e => { if (e.target === e.currentTarget) setShowCreateActeur(false); }}>
+                      <div className="bg-secondary-bg rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-xl flex flex-col max-h-[90dvh]">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-alternate shrink-0">
+                          <p className="font-bold text-primary-text">Créer un acteur ({editType})</p>
+                          <button onClick={() => setShowCreateActeur(false)} className="p-1 hover:bg-alternate rounded-lg"><X size={18} className="text-secondary-text" /></button>
+                        </div>
+                        <div className="overflow-y-auto flex-1 p-4 space-y-3">
+                          <div><label className="text-xs font-medium text-secondary-text">Nom / Société *</label><input className="input-base mt-1" value={newActeurNom} onChange={e => setNewActeurNom(e.target.value)} /></div>
+                          <div><label className="text-xs font-medium text-secondary-text">Qualité / Fonction</label><input className="input-base mt-1" value={newActeurQualite} onChange={e => setNewActeurQualite(e.target.value)} /></div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div><label className="text-xs font-medium text-secondary-text">Téléphone</label><input className="input-base mt-1" type="tel" value={newActeurTel} onChange={e => setNewActeurTel(e.target.value)} /></div>
+                            <div><label className="text-xs font-medium text-secondary-text">Email</label><input className="input-base mt-1" type="email" value={newActeurMail} onChange={e => setNewActeurMail(e.target.value)} /></div>
+                          </div>
+                          <AdresseSearch value={newActeurAdresse} onChange={setNewActeurAdresse} onSelect={setNewActeurAdresse} label="Adresse" />
+                          <div><label className="text-xs font-medium text-secondary-text">Observations</label><textarea className="input-base mt-1 resize-none" rows={2} value={newActeurObs} onChange={e => setNewActeurObs(e.target.value)} /></div>
+                        </div>
+                        <div className="p-3 border-t border-alternate shrink-0" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
+                          <button onClick={handleCreateActeur} disabled={savingActeur || !newActeurNom.trim()}
+                            className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+                            {savingActeur ? <Spinner size="sm" /> : <Check size={14} />}Créer et sélectionner
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

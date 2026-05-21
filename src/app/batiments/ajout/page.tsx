@@ -15,11 +15,12 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 interface AdresseSuggestion {
-  display_name: string;
-  address: {
-    road?: string; house_number?: string;
-    postcode?: string; city?: string; town?: string; village?: string; municipality?: string;
-  };
+  label: string;
+  housenumber?: string;
+  street?: string;
+  postcode?: string;
+  city?: string;
+  context?: string;
 }
 
 function AjoutBatimentPageContent() {
@@ -34,10 +35,10 @@ function AjoutBatimentPageContent() {
   const [ville, setVille] = useState("");
   const [codeInterphone, setCodeInterphone] = useState("");
   const [infosAcces, setInfosAcces] = useState("");
-  const [dateReception, setDateReception] = useState("");
+  const [dateReception, setDateReception] = useState(() => new Date().toISOString().split("T")[0]);
   const [saving, setSaving] = useState(false);
 
-  // Autocomplete adresse
+  // Autocomplete adresse — API adresse.data.gouv.fr (officielle France)
   const [adresseQuery, setAdresseQuery] = useState("");
   const [suggestions, setSuggestions] = useState<AdresseSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -45,36 +46,39 @@ function AjoutBatimentPageContent() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    if (adresseQuery.length < 3) { setSuggestions([]); return; }
+    if (adresseQuery.length < 3) { setSuggestions([]); setShowSuggestions(false); return; }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoadingSuggestions(true);
       try {
+        // API officielle française - très fiable, pas besoin de clé
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=fr&limit=6&q=${encodeURIComponent(adresseQuery)}&accept-language=fr`,
-          { headers: { "User-Agent": "CCM-App/1.0" } }
+          `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(adresseQuery)}&limit=6&autocomplete=1`
         );
         const data = await res.json();
-        setSuggestions(data);
-        setShowSuggestions(true);
+        const results: AdresseSuggestion[] = (data.features ?? []).map((f: any) => ({
+          label: f.properties.label,
+          housenumber: f.properties.housenumber,
+          street: f.properties.street,
+          postcode: f.properties.postcode,
+          city: f.properties.city,
+          context: f.properties.context,
+        }));
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
       } catch { setSuggestions([]); }
       finally { setLoadingSuggestions(false); }
-    }, 400);
+    }, 350);
     return () => clearTimeout(debounceRef.current);
   }, [adresseQuery]);
 
   const selectAdresse = (s: AdresseSuggestion) => {
-    const numRue = s.address.house_number ?? "";
-    const nomRue = s.address.road ?? "";
-    setRue(`${numRue} ${nomRue}`.trim() || s.display_name.split(",")[0]);
-    setCp(s.address.postcode ?? "");
-    // Nominatim peut stocker la ville dans différents champs selon le type de lieu
-    const villeVal = s.address.city || s.address.town || s.address.village || 
-                     s.address.municipality || s.address.county || "";
-    setVille(villeVal);
-    // Afficher une représentation lisible dans le champ de recherche
-    const parts = [numRue, nomRue, s.address.postcode, villeVal].filter(Boolean);
-    setAdresseQuery(parts.join(", "));
+    const numRue = s.housenumber ?? "";
+    const nomRue = s.street ?? "";
+    setRue(`${numRue} ${nomRue}`.trim() || s.label);
+    setCp(s.postcode ?? "");
+    setVille(s.city ?? "");
+    setAdresseQuery(s.label);
     setShowSuggestions(false);
   };
 
@@ -146,7 +150,10 @@ function AjoutBatimentPageContent() {
                     <button key={i} onClick={() => selectAdresse(s)}
                       className="w-full text-left px-3 py-2.5 text-sm hover:bg-primary-bg transition-colors border-b border-alternate/50 last:border-0 flex items-start gap-2">
                       <MapPin size={13} className="text-secondary-text shrink-0 mt-0.5" />
-                      <span className="text-primary-text leading-snug">{s.display_name}</span>
+                      <div>
+                        <p className="text-primary-text text-sm leading-snug">{s.label}</p>
+                        {s.context && <p className="text-xs text-secondary-text">{s.context}</p>}
+                      </div>
                     </button>
                   ))}
                 </div>

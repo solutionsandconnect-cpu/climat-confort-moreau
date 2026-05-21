@@ -12,14 +12,12 @@ import toast from "react-hot-toast";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, resetPassword, loading, error, firebaseUser, initialized, clearError } =
+  const { login, loading, error, firebaseUser, initialized, clearError } =
     useAuthStore();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showReset, setShowReset] = useState(false);
-  const [resetEmail, setResetEmail] = useState("");
 
   // Si déjà connecté, rediriger
   useEffect(() => {
@@ -42,9 +40,7 @@ export default function LoginPage() {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await resetPassword(resetEmail);
-      toast.success("Email de réinitialisation envoyé !");
-      setShowReset(false);
+      toast.success("Contactez un administrateur pour réinitialiser votre mot de passe.");
     } catch {
       toast.error("Impossible d'envoyer l'email.");
     }
@@ -77,9 +73,7 @@ export default function LoginPage() {
 
       {/* Formulaire */}
       <div className="w-full max-w-sm">
-        {!showReset ? (
-          /* === FORMULAIRE CONNEXION === */
-          <form onSubmit={handleLogin} className="flex flex-col gap-5">
+        <form onSubmit={handleLogin} className="flex flex-col gap-5">
             {/* Email */}
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-primary-text">
@@ -161,67 +155,7 @@ export default function LoginPage() {
               )}
             </button>
 
-            {/* Mot de passe oublié */}
-            <button
-              type="button"
-              onClick={() => {
-                setShowReset(true);
-                clearError();
-              }}
-              className="text-center text-sm text-secondary-text hover:text-primary transition-colors"
-            >
-              Mot de passe oublié ?
-            </button>
           </form>
-        ) : (
-          /* === FORMULAIRE RESET === */
-          <form onSubmit={handleResetPassword} className="flex flex-col gap-5">
-            <div className="text-center mb-2">
-              <h2 className="text-lg font-bold text-primary-text">
-                Réinitialiser le mot de passe
-              </h2>
-              <p className="text-sm text-secondary-text mt-1">
-                Entrez votre email pour recevoir un lien de réinitialisation.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-primary-text">
-                Adresse email
-              </label>
-              <div className="relative">
-                <Mail
-                  size={16}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-secondary-text"
-                />
-                <input
-                  type="email"
-                  value={resetEmail}
-                  onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="votre@email.com"
-                  required
-                  className="input-base pl-10"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !resetEmail}
-              className="btn-primary w-full py-3"
-            >
-              {loading ? "Envoi…" : "Envoyer le lien"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowReset(false)}
-              className="text-center text-sm text-secondary-text hover:text-primary transition-colors"
-            >
-              ← Retour à la connexion
-            </button>
-          </form>
-        )}
       </div>
 
       {/* Footer */}
