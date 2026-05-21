@@ -3,7 +3,7 @@
 // Accessible uniquement aux Admin et SuperAdmin authentifiés
 
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,14 +15,14 @@ export async function POST(req: NextRequest) {
     const idToken = authHeader.slice(7);
     let callerUid: string;
     try {
-      const decoded = await adminAuth.verifyIdToken(idToken);
+      const decoded = await getAdminAuth().verifyIdToken(idToken);
       callerUid = decoded.uid;
     } catch {
       return NextResponse.json({ error: "Token invalide" }, { status: 401 });
     }
 
     // 2. Vérifier que le demandeur est Admin ou SuperAdmin
-    const callerSnap = await adminDb
+    const callerSnap = await getAdminDb()
       .collection("usersapp")
       .where("uid", "==", callerUid)
       .limit(1)
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Supprimer le compte Firebase Auth
     try {
-      await adminAuth.deleteUser(uid);
+      await getAdminAuth().deleteUser(uid);
     } catch (e: unknown) {
       const err = e as { code?: string };
       // Si l'utilisateur Auth n'existe pas, on continue quand même
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     // 5. Supprimer le document Firestore (si firestoreId fourni)
     if (firestoreId) {
-      await adminDb.collection("usersapp").doc(firestoreId).delete();
+      await getAdminDb().collection("usersapp").doc(firestoreId).delete();
     }
 
     return NextResponse.json({ success: true });

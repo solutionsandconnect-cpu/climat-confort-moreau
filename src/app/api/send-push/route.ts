@@ -2,9 +2,8 @@
 // Envoie une notification push FCM à un ou plusieurs utilisateurs via firebase-admin
 
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { getAdminAuth, getAdminDb, getApps } from "@/lib/firebaseAdmin";
 import { getMessaging } from "firebase-admin/messaging";
-import { getApps } from "firebase-admin/app";
 
 function getAdminMessaging() {
   const app = getApps()[0];
@@ -19,7 +18,7 @@ export async function POST(req: NextRequest) {
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
     }
-    await adminAuth.verifyIdToken(authHeader.slice(7));
+    await getAdminAuth().verifyIdToken(authHeader.slice(7));
 
     const body = await req.json() as {
       targetUserFirestoreId: string;
@@ -35,7 +34,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Récupérer les tokens FCM de l'utilisateur cible
-    const userDoc = await adminDb.collection("usersapp").doc(targetUserFirestoreId).get();
+    const userDoc = await getAdminDb().collection("usersapp").doc(targetUserFirestoreId).get();
     if (!userDoc.exists) {
       return NextResponse.json({ error: "Utilisateur introuvable" }, { status: 404 });
     }
@@ -85,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     if (invalidTokens.length > 0) {
       const cleanedTokens = fcmTokens.filter(t => !invalidTokens.includes(t));
-      await adminDb.collection("usersapp").doc(targetUserFirestoreId).update({ fcm_tokens: cleanedTokens });
+      await getAdminDb().collection("usersapp").doc(targetUserFirestoreId).update({ fcm_tokens: cleanedTokens });
     }
 
     return NextResponse.json({

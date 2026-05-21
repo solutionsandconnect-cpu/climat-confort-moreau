@@ -23,6 +23,11 @@ function getAdminApp() {
   });
 }
 
-export const adminAuth = getAuth(getAdminApp());
-export const adminDb = getFirestore(getAdminApp());
+// Initialisation lazy : appelée à l'intérieur des handlers, jamais au chargement du module
+export function getAdminAuth() {
+  return getAuth(getAdminApp());
+}
+export function getAdminDb() {
+  return getFirestore(getAdminApp());
+}
 export { getApps } from "firebase-admin/app";

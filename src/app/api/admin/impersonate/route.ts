@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,9 +7,9 @@ export async function POST(req: NextRequest) {
     const idToken = authHeader.replace("Bearer ", "");
     if (!idToken) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
-    const decoded = await adminAuth.verifyIdToken(idToken);
+    const decoded = await getAdminAuth().verifyIdToken(idToken);
 
-    const callerSnap = await adminDb.collection("usersapp").doc(decoded.uid).get();
+    const callerSnap = await getAdminDb().collection("usersapp").doc(decoded.uid).get();
     if (!callerSnap.exists) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     const callerRole = callerSnap.data()?.roleapp as string | undefined;
     if (callerRole !== "Admin" && callerRole !== "SuperAdmin") {
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     if (!targetUid) return NextResponse.json({ error: "targetUid manquant" }, { status: 400 });
 
     // Refuser d'usurper un Admin ou SuperAdmin
-    const targetSnap = await adminDb.collection("usersapp").where("uid", "==", targetUid).limit(1).get();
+    const targetSnap = await getAdminDb().collection("usersapp").where("uid", "==", targetUid).limit(1).get();
     if (!targetSnap.empty) {
       const targetRole = targetSnap.docs[0].data().roleapp as string | undefined;
       if (targetRole === "Admin" || targetRole === "SuperAdmin") {
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const customToken = await adminAuth.createCustomToken(targetUid, {
+    const customToken = await getAdminAuth().createCustomToken(targetUid, {
       impersonatedBy: decoded.uid,
     });
 
