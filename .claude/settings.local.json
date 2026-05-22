@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm install *)",
+      "Bash(npx next *)",
+      "Bash(dir src\\\\app /B /S)",
+      "Bash(findstr /i \"autoris absence conge\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(vercel --version)",
+      "Bash(npx vercel *)"
+    ]
+  }
+}
