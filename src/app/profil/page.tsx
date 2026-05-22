@@ -9,10 +9,11 @@ import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, auth, storage } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore } from "@/store/authStore";
+import { useAuthStore, isSalarie } from "@/store/authStore";
+import { LISTE_SERVICES } from "@/types";
 import { Spinner } from "@/components/ui";
 import { cn, formatDate, formatDateRelative, getInitials } from "@/lib/utils";
-import { Pencil, Check, X, Lock, User, Phone, Mail, Shield, Calendar, Eye, EyeOff, Camera } from "lucide-react";
+import { Pencil, Check, X, Lock, User, Phone, Mail, Shield, Calendar, Eye, EyeOff, Camera, AlertTriangle } from "lucide-react";
 import toast from "react-hot-toast";
 
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
@@ -44,6 +45,8 @@ export default function ProfilPage() {
   const [editEmailType, setEditEmailType] = useState<"Pro" | "Perso">(userApp?.emailType ?? "Pro");
   const [editType, setEditType] = useState(userApp?.type ?? "");
   const [editService, setEditService] = useState(userApp?.service ?? "");
+
+  const [showServiceConfirm, setShowServiceConfirm] = useState(false);
 
   // Changement mot de passe
   const [showPwdForm, setShowPwdForm] = useState(false);
@@ -80,6 +83,13 @@ export default function ProfilPage() {
 
   const handleSave = async () => {
     if (!userApp || !firebaseUser) return;
+    const estSalarie = isSalarie(userApp);
+    const serviceChanged = estSalarie && editService !== (userApp.service ?? "");
+    // Pour les salariés, demander confirmation si le service a changé
+    if (serviceChanged && !showServiceConfirm) {
+      setShowServiceConfirm(true);
+      return;
+    }
     setSaving(true);
     try {
       await updateDoc(doc(db, "usersapp", userApp.id), {
@@ -93,6 +103,7 @@ export default function ProfilPage() {
         service_appartenance: editService,
       });
       setEditMode(false);
+      setShowServiceConfirm(false);
       toast.success("Profil mis à jour !");
     } catch { toast.error("Erreur lors de la sauvegarde"); }
     finally { setSaving(false); }
@@ -120,6 +131,9 @@ export default function ProfilPage() {
   };
 
   if (!userApp) return <AppShell><div className="p-8 text-center"><Spinner /></div></AppShell>;
+
+  const estSalarie = isSalarie(userApp);
+  const serviceChanged = estSalarie && editService !== (userApp.service ?? "");
 
   return (
     <AppShell>
@@ -180,10 +194,75 @@ export default function ProfilPage() {
         ) : (
           <div className="card p-4 mb-4 space-y-3">
             <h3 className="text-xs font-bold text-secondary-text uppercase tracking-wide mb-1">Modifier le profil</h3>
+
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-xs font-medium text-secondary-text">Prénom</label><input className="input-base mt-1" value={editPrenom} onChange={e => setEditPrenom(e.target.value)} /></div>
-              <div><label className="text-xs font-medium text-secondary-text">Nom</label><input className="input-base mt-1" value={editNom} onChange={e => setEditNom(e.target.value)} /></div>
+              <div>
+                <label className="text-xs font-medium text-secondary-text">Prénom</label>
+                <input
+                  className={cn("input-base mt-1", estSalarie && "opacity-60 cursor-not-allowed bg-primary-bg")}
+                  value={editPrenom}
+                  onChange={e => !estSalarie && setEditPrenom(e.target.value)}
+                  readOnly={estSalarie}
+                />
+                {estSalarie && <p className="text-[10px] text-secondary-text mt-1 flex items-center gap-1"><Lock size={9} />Non modifiable</p>}
+              </div>
+              <div>
+                <label className="text-xs font-medium text-secondary-text">Nom</label>
+                <input
+                  className={cn("input-base mt-1", estSalarie && "opacity-60 cursor-not-allowed bg-primary-bg")}
+                  value={editNom}
+                  onChange={e => !estSalarie && setEditNom(e.target.value)}
+                  readOnly={estSalarie}
+                />
+                {estSalarie && <p className="text-[10px] text-secondary-text mt-1 flex items-center gap-1"><Lock size={9} />Non modifiable</p>}
+              </div>
             </div>
+
+            <div>
+              <label className="text-xs font-medium text-secondary-text">Service</label>
+              <select
+                className="input-base mt-1"
+                value={editService}
+                onChange={e => { setEditService(e.target.value); setShowServiceConfirm(false); }}
+              >
+                <option value="">—</option>
+                {LISTE_SERVICES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {serviceChanged && !showServiceConfirm && (
+                <div className="flex items-start gap-2 mt-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200">
+                  <AlertTriangle size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700">
+                    Vous êtes sur le point de modifier votre service. Cette action sera soumise à validation.
+                  </p>
+                </div>
+              )}
+              {showServiceConfirm && (
+                <div className="mt-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-300">
+                  <p className="text-xs font-semibold text-amber-800 mb-2 flex items-center gap-1.5">
+                    <AlertTriangle size={13} />Confirmer le changement de service ?
+                  </p>
+                  <p className="text-xs text-amber-700 mb-3">
+                    Vous allez passer de <span className="font-semibold">« {userApp?.service || "—"} »</span> à <span className="font-semibold">« {editService} »</span>. Cette modification sera enregistrée immédiatement.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowServiceConfirm(false)}
+                      className="flex-1 py-1.5 rounded-lg text-xs font-semibold border border-amber-300 text-amber-700 hover:bg-amber-100 transition-colors"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="flex-1 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      {saving ? <Spinner size="sm" /> : <Check size={12} />}Confirmer
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="text-xs font-medium text-secondary-text">Téléphone</label>
               <input className="input-base mt-1" type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} />
@@ -205,7 +284,7 @@ export default function ProfilPage() {
               <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 flex-1">
                 {saving ? <Spinner size="sm" /> : <Check size={14} />} Sauvegarder
               </button>
-              <button onClick={() => setEditMode(false)} className="btn-outline px-4"><X size={14} /></button>
+              <button onClick={() => { setEditMode(false); setShowServiceConfirm(false); }} className="btn-outline px-4"><X size={14} /></button>
             </div>
           </div>
         )}

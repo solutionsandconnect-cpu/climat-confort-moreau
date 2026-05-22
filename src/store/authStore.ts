@@ -167,3 +167,19 @@ export const isJournalAdmin = (userApp: UserApp | null) =>
 // Peut voir le tableau de bord (Admin, SuperAdmin, Conducteur de Travaux)
 export const canViewDashboard = (userApp: UserApp | null) =>
   isAdmin(userApp) || userApp?.type === "Conducteur de Travaux";
+
+// Peut créer des feuilles d'heures pour d'autres salariés (Admin, Conducteur de Travaux)
+export const canCreateForOthers = (userApp: UserApp | null) =>
+  isAdmin(userApp) || userApp?.type === "Conducteur de Travaux";
+
+// Types des salariés de terrain (sans privilèges de gestion)
+export const SALARIE_TYPES: readonly string[] = [
+  "Chef de chantier plomberie",
+  "Chef de chantier électricité",
+  "Technicien SAV",
+  "Compagnon plomberie",
+  "Compagnon électricité",
+];
+
+export const isSalarie = (userApp: UserApp | null): boolean =>
+  !!userApp?.type && SALARIE_TYPES.includes(userApp.type);

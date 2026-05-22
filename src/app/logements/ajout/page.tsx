@@ -28,9 +28,10 @@ function AjoutLogementPageContent() {
   const searchParams = useSearchParams();
   const { firebaseUser, userApp } = useAuthStore();
   const chantierId = searchParams.get("chantier");
+  const batimentIdParam = searchParams.get("batimentId");
 
   const [batiments, setBatiments] = useState<Batiment[]>([]);
-  const [batimentId, setBatimentId] = useState("");
+  const [batimentId, setBatimentId] = useState(batimentIdParam ?? "");
   const [numLogement, setNumLogement] = useState("");
   const [nomOccupant, setNomOccupant] = useState("");
   const [tel, setTel] = useState("");
@@ -58,7 +59,14 @@ function AjoutLogementPageContent() {
   useEffect(() => {
     if (!chantierId) return;
     const opRef = doc(db, "Operation", chantierId) as DocumentReference;
-    getBatimentsForOperation(opRef).then(bats => { setBatiments(bats); setLoadingBats(false); });
+    getBatimentsForOperation(opRef).then(bats => {
+      setBatiments(bats);
+      setLoadingBats(false);
+      // Auto-sélection si on revient de la création d'un bâtiment
+      if (batimentIdParam && bats.some(b => b.id === batimentIdParam)) {
+        setBatimentId(batimentIdParam);
+      }
+    });
   }, [chantierId]);
 
   // Charger acteurs filtrés par type de contact
@@ -145,7 +153,7 @@ function AjoutLogementPageContent() {
                   <AlertCircle size={16} className="text-yellow-600 shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-semibold text-yellow-800">Aucun bâtiment disponible</p>
-                    <button onClick={() => router.push(`/batiments/ajout?chantier=${chantierId}`)} className="mt-1 text-xs font-bold text-yellow-800 underline">
+                    <button onClick={() => router.push(`/batiments/ajout?chantier=${chantierId}&returnTo=logement`)} className="mt-1 text-xs font-bold text-yellow-800 underline">
                       Créer un bâtiment →
                     </button>
                   </div>

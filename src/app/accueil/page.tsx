@@ -24,7 +24,7 @@ import { cn, getInitials } from "@/lib/utils";
 import { LoadingPage, EmptyState, Spinner } from "@/components/ui";
 import {
   ChevronLeft, ChevronRight, Clock, User, Trash2,
-  Calendar, AlertCircle, LogOut, BookOpen, UsersRound, CalendarPlus,
+  Calendar, AlertCircle, LogOut, BookOpen, Users, UsersRound, CalendarPlus,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -430,6 +430,15 @@ export default function AccueilPage() {
             >
               <UsersRound size={14} />
               Acteurs chantiers
+            </button>
+          )}
+          {isAdmin(userApp) && (
+            <button
+              onClick={() => router.push("/utilisateurs")}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-secondary-bg border border-alternate text-xs font-semibold text-secondary-text hover:text-primary hover:border-primary/40 transition-all"
+            >
+              <Users size={14} />
+              Liste utilisateurs
             </button>
           )}
         </div>

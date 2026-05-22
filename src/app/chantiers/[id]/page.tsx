@@ -578,8 +578,12 @@ export default function FicheChantierPage({
                             {bat.nomBatiment || "Bâtiment sans nom"}
                           </p>
                           <p className="text-xs text-secondary-text">
-                            {bat.adresse && `${bat.adresse}, `}
-                            {bat.codePostal} {bat.ville} ·{" "}
+                            {(() => {
+                              const rue = bat.adresse?.trim() ?? "";
+                              const cpVille = [bat.codePostal?.trim(), bat.ville?.trim()].filter(Boolean).join(" ");
+                              const parts = [rue, cpVille].filter(Boolean);
+                              return parts.length > 0 ? `${parts.join(", ")} · ` : "· ";
+                            })()}
                             <span className="font-medium">{batsLogs.length} logement(s)</span>
                           </p>
                         </div>

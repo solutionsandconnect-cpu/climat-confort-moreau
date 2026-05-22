@@ -4,24 +4,24 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  doc, addDoc, updateDoc, onSnapshot, collection, getDocs, deleteDoc,
-  serverTimestamp, Timestamp, DocumentReference, query, where, orderBy,
+  doc, addDoc, updateDoc, onSnapshot, collection, getDocs, getDoc, deleteDoc,
+  serverTimestamp, Timestamp, DocumentReference, query, where, orderBy, arrayUnion,
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canCreateForOthers, isSalarie } from "@/store/authStore";
 import { LoadingPage, Spinner, SearchInput } from "@/components/ui";
-import { creerDiscussion } from "@/lib/notifMessagerieService";
+import { creerDiscussion, creerDiscussionGroupe, sendMessage, ajouterParticipants, updateDiscussionEtatDocument } from "@/lib/notifMessagerieService";
 import { generateDocFhPdf } from "@/lib/generateDocFhPdf";
-import { cn } from "@/lib/utils";
-import { ArrowLeft, Save, Check, Info, Plus, Trash2, Send, Lock, Building2, ChevronDown, ChevronUp, FileText, Download } from "lucide-react";
+import { cn, formatDate, formatDateTime } from "@/lib/utils";
+import { ArrowLeft, Save, Check, Info, Plus, Trash2, Send, Lock, Building2, ChevronDown, ChevronUp, FileText, Download, AlertTriangle, Clock, Share2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { LISTE_SERVICES } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CATS = ["Fiche d'heures", "Demande autorisation absence", "Fiche de retour Travaux imprévus"];
+const CATS = ["Fiche d'heures", "Demande autorisation absence", "Fiche de retour Travaux imprévus", "Forfait Jour"];
 const TYPES_FH = ["Plomberie", "Électricité", "SAV", "Atelier", "Dessin", "Magasin"];
 const TYPES_ABSENCE = ["Congé payé", "Congé ancienneté", "Congé sans solde", "Jour de récupération", "Jour de repos", "Abs évènement familial"];
 const ETATS = ["En attente", "En cours de traitement", "Validé", "Refusé"];
@@ -31,27 +31,56 @@ const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 // ⚠️ Vérifier que ces noms correspondent exactement à l'app Flutter (FFAppConstants)
 const TACHES_PREDEFINIES: Record<string, string[]> = {
   "Plomberie": [
-    "Préparation de chantier",
-    "Préparation matériel / atelier",
-    "Déplacement",
-    "Travaux plomberie",
-    "Récupération matériel",
-    "Nettoyage / rangement",
+    "Préfabrication",
+    "Livraison",
+    "Incorporation",
+    "Sous-sol",
+    "Verticaux : chutes et réseau EU - EP colonnes VMC - 3CE",
+    "Horizontaux : VP - VMC - Capteurs solaires",
+    "Sorties de coffres EU - EV - VMC",
+    "Chaufferie - locaux techniques",
+    "Communs : Colonnes - Citerneau",
+    "Plomberie (1ère intervention)",
+    "Chauffage (1ère intervention)",
+    "Electricité",
+    "Plomberie (2e intervention)",
+    "Chauffage (2e intervention)",
+    "Percement et rebouchage",
+    "Essais et réglages",
+    "Finitions (pose abattants, réfrigérateurs, etc…)",
+    "S.A.V.",
+    "TMA ou TS (travaux hors marché de base)",
   ],
   "Électricité": [
-    "Préparation de chantier",
-    "Préparation matériel / atelier",
-    "Déplacement",
-    "Travaux électricité",
-    "Récupération matériel",
-    "Nettoyage / rangement",
+    "Incorporation béton",
+    "Installation provisoire chantier",
+    "Sous-sol",
+    "Incorporations placo - boîtiers",
+    "Pose appareillages - goulottes (1ère intervention)",
+    "Colonne - EDF - circuit terre",
+    "Pose plaques - tableaux (2e intervention)",
+    "Communs - Services Généraux - escalier - éclairage extérieur",
+    "Essais et réglages",
+    "Interphone - alarme - portiers",
+    "Percement et rebouchage",
+    "S.A.V.",
+    "TMA ou TS (travaux hors marché de base)",
   ],
   "Dessin": [
-    "Plans d'exécution",
-    "Plans de récolement",
-    "Calculs techniques",
-    "Documents administratifs",
-    "Réunion de chantier",
+    "Calcul (Plomberie - VMC - Solaire)",
+    "Réservations + Exécution sous-sol (Plomberie - VMC - Solaire)",
+    "Exécution niveaux + Schéma colonnes",
+    "Réservations niveaux + combles",
+    "Calcul (Chauffage)",
+    "Exécution",
+    "Réservations (Electricité)",
+    "Plan coulage",
+    "Tirage plans (Avant métré)",
+    "Chiffrage",
+    "DOE",
+    "Carnet échantillons",
+    "Réunion chantier - formation  - Divers",
+    "CONGE",
   ],
   // SAV, Atelier, Magasin : pas de tâches prédéfinies → ajout manuel par chantier
 };
@@ -85,9 +114,84 @@ interface UserOption {
   nom: string;
   prenom: string;
   service?: string;
+  forfaitJour?: string;
+}
+
+interface ForfaitJourEntry {
+  day: number;
+  matin: string;
+  apresMidi: string;
+}
+
+interface HistoriqueEntry {
+  id: string;
+  date?: Date;
+  typeAction: string;
+  auteurNom: string;
+  etatDe?: string;
+  etatVers?: string;
+  commentaire?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const MOIS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+const WEEKDAYS = ["Dimanche","Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi"];
+const FJ_CODES = ["","X","JR","CP","JF","RH","ABS"];
+
+function getEaster(year: number): Date {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mo = Math.floor((h + l - 7 * m + 114) / 31);
+  const dy = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, mo - 1, dy);
+}
+
+function getFrenchHolidayDays(year: number, month: number): Set<number> {
+  const days = new Set<number>();
+  const add = (m: number, d: number) => { if (m === month) days.add(d); };
+  add(1, 1); add(5, 1); add(5, 8); add(7, 14); add(8, 15); add(11, 1); add(11, 11); add(12, 25);
+  const e = getEaster(year);
+  const off = (n: number) => { const d = new Date(e); d.setDate(d.getDate() + n); add(d.getMonth() + 1, d.getDate()); };
+  off(1); off(39); off(50); // Lundi Pâques, Ascension, Lundi Pentecôte
+  return days;
+}
+
+function getISOWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dayNum + 3);
+  const firstThursday = d.valueOf();
+  d.setUTCMonth(0, 1);
+  if (d.getUTCDay() !== 4) d.setUTCDate(1 + ((4 - d.getUTCDay()) + 7) % 7);
+  return 1 + Math.round((firstThursday - d.valueOf()) / 604800000);
+}
+
+function getCalendarMonth(yearMonth: string): Array<{day: number; weekday: string; weekNum: number; isWeekend: boolean}> {
+  if (!yearMonth) return [];
+  const [year, month] = yearMonth.split("-").map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  return Array.from({ length: daysInMonth }, (_, i) => {
+    const d = i + 1;
+    const date = new Date(year, month - 1, d);
+    return { day: d, weekday: WEEKDAYS[date.getDay()], weekNum: getISOWeek(date), isWeekend: date.getDay() === 0 || date.getDay() === 6 };
+  });
+}
+
+function initForfaitJours(yearMonth: string): ForfaitJourEntry[] {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const holidays = getFrenchHolidayDays(year, month);
+  return getCalendarMonth(yearMonth).map(({ day, isWeekend }) => {
+    if (isWeekend) return { day, matin: "RH", apresMidi: "RH" };
+    if (holidays.has(day)) return { day, matin: "JF", apresMidi: "JF" };
+    return { day, matin: "X", apresMidi: "X" };
+  });
+}
 
 function calcJoursOuvres(debut: string, fin: string): number {
   if (!debut || !fin) return 0;
@@ -459,14 +563,22 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
 
   const [users, setUsers] = useState<UserOption[]>([]);
   const [operations, setOperations] = useState<OperationOption[]>([]);
+  const [historique, setHistorique] = useState<HistoriqueEntry[]>([]);
+  const [chefEquipeId, setChefEquipeId] = useState("");
+  const [chefEquipeName, setChefEquipeName] = useState("");
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [isExternal, setIsExternal] = useState(false);
+  const [createParId, setCreateParId] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [operationsLoaded, setOperationsLoaded] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [sendingPdfMsg, setSendingPdfMsg] = useState(false);
+  const [dateCreate, setDateCreate] = useState<Date | null>(null);
   const prevEtatRef = useRef<string>("");
+  const obsUserEdited = useRef(false);
 
   // Document fields
   const [categorie, setCategorie] = useState("Fiche d'heures");
@@ -477,6 +589,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   const [etat, setEtat] = useState("En attente");
   const [etatEnvoi, setEtatEnvoi] = useState("Non envoyé");
   const [observations, setObservations] = useState("");
+  const [motifRefus, setMotifRefus] = useState("");
   const [sigUser, setSigUser] = useState("");
   const [sigChef, setSigChef] = useState("");
   const [sigResp, setSigResp] = useState("");
@@ -508,7 +621,9 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   // Travaux imprévus
   const [nomCh, setNomCh] = useState("");
   const [numCh, setNumCh] = useState("");
-  const [dateTI, setDateTI] = useState("");
+  const [tiOperationId, setTiOperationId] = useState("");
+  const [dateTI, setDateTI] = useState(() => new Date().toISOString().split("T")[0]);
+  const [conducteurTxId, setConducteurTxId] = useState("");
   const [naturesTravaux, setNaturesTravaux] = useState("");
   const [cptInter, setCptInter] = useState("");
   const [ts, setTs] = useState("");
@@ -521,13 +636,40 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   const [factImprev, setFactImprev] = useState("");
   const [visa, setVisa] = useState(false);
 
-  // Pre-fill connected user on new doc
+  // Forfait Jour
+  const [forfaitMois, setForfaitMois] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [forfaitJours, setForfaitJours] = useState<ForfaitJourEntry[]>([]);
+
+  // Initialiser le tableau Forfait Jour quand le mois change (nouveau doc uniquement)
   useEffect(() => {
-    if (!isNew || users.length === 0 || !selectedUserId) return;
-    const u = users.find(u => u.uid === selectedUserId || u.id === selectedUserId);
-    if (u) { setNom(u.nom); setPrenom(u.prenom); setService(u.service ?? ""); }
+    if (categorie !== "Forfait Jour" || !isNew || !forfaitMois) return;
+    setForfaitJours(initForfaitJours(forfaitMois));
+  }, [forfaitMois, categorie, isNew]);
+
+  // Sync tiOperationId quand les opérations sont chargées et nomCh est défini (doc existant)
+  useEffect(() => {
+    if (categorie !== "Fiche de retour Travaux imprévus" || !operationsLoaded || !nomCh) return;
+    const match = operations.find(op => op.nomChantier === nomCh);
+    if (match) setTiOperationId(match.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users, isNew]);
+  }, [nomCh, operations, operationsLoaded, categorie]);
+
+  // Pre-fill connected user on new doc
+  // - Lambda : champs déjà initialisés depuis userApp, pas besoin de users[]
+  // - Chef/Admin : se déclenche quand users[] est chargé et selectedUserId connu
+  useEffect(() => {
+    if (!isNew || !selectedUserId) return;
+    if (users.length > 0) {
+      const u = users.find(u => u.uid === selectedUserId || u.id === selectedUserId);
+      if (u) { setNom(u.nom); setPrenom(u.prenom); setService(u.service ?? ""); }
+    } else if (userApp && (selectedUserId === firebaseUser?.uid || selectedUserId === userApp.id)) {
+      setNom(userApp.nom); setPrenom(userApp.prenom); setService(userApp.service ?? "");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, isNew, selectedUserId]);
 
   useEffect(() => {
     if (isNew && firebaseUser?.uid && !selectedUserId) setSelectedUserId(firebaseUser.uid);
@@ -536,14 +678,16 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   // ── Load static data (users, operations) ──────────────────────────────────
 
   useEffect(() => {
+    // Liste des utilisateurs : toujours chargée (nécessaire pour le sélecteur chef d'équipe)
     getDocs(collection(db, "usersapp")).then(snap =>
       setUsers(snap.docs.map(d => ({
         id: d.id, uid: d.data().uid ?? d.id,
         nom: d.data().nom ?? "", prenom: d.data().prenom ?? "",
         service: d.data().service_appartenance,
+        forfaitJour: d.data().forfait_jour as string | undefined,
         displayName: (d.data().display_name as string) ?? `${d.data().prenom} ${d.data().nom}`,
       })))
-    );
+    ).catch(() => {});
     getDocs(collection(db, "Operation")).then(snap => {
       setOperations(
         snap.docs
@@ -570,13 +714,25 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
       const d = snap.data();
       setCategorie(d.categorie_document ?? "Fiche d'heures");
       setSelectedUserId((d.ref_user as DocumentReference)?.id ?? "");
+      const newChefId = (d.ref_chef_equipe as DocumentReference)?.id ?? "";
+      setChefEquipeId(newChefId);
+      if (newChefId) {
+        getDoc(doc(db, "usersapp", newChefId)).then(s => {
+          if (s.exists()) setChefEquipeName((s.data().display_name as string) ?? `${s.data().prenom ?? ""} ${s.data().nom ?? ""}`.trim());
+        }).catch(() => {});
+      } else {
+        setChefEquipeName("");
+      }
+      setIsExternal(d.personne_externe === true);
+      setCreateParId((d.create_par as DocumentReference)?.id ?? "");
+      setDateCreate(d.date_create?.toDate ? d.date_create.toDate() : null);
       setNom(d.nom ?? ""); setPrenom(d.prenom ?? ""); setService(d.service ?? "");
       prevEtatRef.current = d.etat_traitement_document ?? "En attente";
       setEtat(d.etat_traitement_document ?? "En attente");
       setEtatEnvoi(d.etat_envoi ?? "Non envoyé");
       setTypeFH(d.type_document ?? ""); setMois(d.mois ?? "");
       setDebut(toStr(d.debut_semaine)); setFin(toStr(d.fin_semaine));
-      setObservations(d.observations ?? "");
+      if (!obsUserEdited.current) setObservations(d.observations ?? "");
       setSigUser(d.signature_user ?? ""); setSigChef(d.signature_chef_equipe ?? "");
       setSigResp(d.signature_responsable ?? ""); setNomResp(d.nom_responsable ?? "");
       setTypeAbs(d.type_absence ?? "");
@@ -584,6 +740,12 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
       setNbJours(d.nb_jours?.toString() ?? "");
       setNomCh(d.nom_chantier_travaux_imprevus ?? "");
       setNumCh(d.num_chantier_travaux_imprevus ?? "");
+      setConducteurTxId((d.ref_conducteur_travaux as DocumentReference | null)?.id ?? "");
+      if (d.forfait_mois) setForfaitMois(d.forfait_mois as string);
+      const rawFj = d.forfait_jours_data as Array<{day: number; matin: string; apres_midi: string}> | null;
+      if (rawFj) setForfaitJours(rawFj.map(j => ({ day: j.day, matin: j.matin, apresMidi: j.apres_midi })));
+      else if (d.categorie_document === "Forfait Jour" && d.forfait_mois)
+        setForfaitJours(initForfaitJours(d.forfait_mois as string));
       setDateTI(toStr(d.debut_semaine));
       setNaturesTravaux(d.observations ?? "");
       setCptInter(d.compte_inter_travaux_imprevus ?? "");
@@ -593,6 +755,10 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
       setChiffrage(d.chiffrage_transmis ?? ""); setAccept(d.acceptation_travaux_imprevus ?? "");
       setFactImprev(d.facturation_travaux_imprevus ?? ""); setVisa(d.visa_chiffrage ?? false);
       setLoading(false);
+    }, (err) => {
+      console.warn("Document inaccessible :", err);
+      setLoading(false);
+      router.back();
     });
     return () => unsub();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -627,6 +793,29 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
         setChantiers(result);
       });
   // Only run on mount / when doc ID changes (not on every render)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id, isNew]);
+
+  useEffect(() => {
+    if (isNew) return;
+    // Pas d'orderBy pour éviter l'exigence d'un index Firestore composite sur la sous-collection
+    const unsub = onSnapshot(
+      collection(db, "Documents_fh", params.id, "historique_fh"),
+      snap => setHistorique(snap.docs
+        .map(d => ({
+          id: d.id,
+          date: d.data().date_action?.toDate() as Date | undefined,
+          typeAction: d.data().type_action ?? "",
+          auteurNom: d.data().auteur_nom ?? "",
+          etatDe: d.data().etat_de as string | undefined,
+          etatVers: d.data().etat_vers as string | undefined,
+          commentaire: d.data().commentaire as string | undefined,
+        }))
+        .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0))
+      ),
+      err => console.warn("Historique onSnapshot:", err)
+    );
+    return () => unsub();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id, isNew]);
 
@@ -692,6 +881,10 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   const buildNom = () => {
     if (categorie === "Fiche d'heures") return `${typeFH} - ${mois} sem. ${debut}`.trim();
     if (categorie === "Demande autorisation absence") return `Absence ${typeAbs} ${debutAbs} au ${finAbs}`;
+    if (categorie === "Forfait Jour") {
+      const [y, m] = forfaitMois.split("-").map(Number);
+      return `Forfait Jour - ${prenom} ${nom} - ${MOIS_FR[m - 1]} ${y}`.trim();
+    }
     return `Travaux imprévus ${nomCh} - ${new Date().toLocaleDateString("fr-FR")}`;
   };
 
@@ -737,14 +930,18 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   };
 
   const buildData = () => {
-    const userRef = selectedUserId ? doc(db, "usersapp", selectedUserId)
+    const userRef = isExternal ? null
+      : selectedUserId ? doc(db, "usersapp", selectedUserId)
       : (firebaseUser ? doc(db, "usersapp", firebaseUser.uid) : null);
     const isAbs = categorie === "Demande autorisation absence";
     const isTI = categorie === "Fiche de retour Travaux imprévus";
-    const debutTS = isAbs ? toTS(debutAbs) : isTI ? toTS(dateTI) : toTS(debut);
-    const finTS = isAbs ? toTS(finAbs) : isTI ? null : toTS(fin);
+    const isFJ = categorie === "Forfait Jour";
+    const debutTS = isAbs ? toTS(debutAbs) : isTI ? toTS(dateTI) : isFJ && forfaitMois ? Timestamp.fromDate(new Date(forfaitMois + "-01")) : toTS(debut);
+    const finTS = isAbs ? toTS(finAbs) : isTI || isFJ ? null : toTS(fin);
     return {
       ref_user: userRef, nom, prenom, service,
+      personne_externe: isExternal,
+      ref_chef_equipe: chefEquipeId ? doc(db, "usersapp", chefEquipeId) : null,
       categorie_document: categorie,
       nom_document: buildNom(),
       type_document: typeFH,
@@ -759,17 +956,30 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
       nb_jours: nbJours ? parseFloat(nbJours) : null,
       nom_chantier_travaux_imprevus: nomCh,
       num_chantier_travaux_imprevus: numCh,
+      ref_conducteur_travaux: conducteurTxId ? doc(db, "usersapp", conducteurTxId) : null,
       compte_inter_travaux_imprevus: cptInter,
       ts_travaux_imprevus: ts, tma_travaux_imprevus: tma,
       compte_prorata_travaux_imprevus: cptProrata,
       estimations_materiaux: estMat, estimations_heures: estH,
       chiffrage_transmis: chiffrage, acceptation_travaux_imprevus: accept,
       facturation_travaux_imprevus: factImprev, visa_chiffrage: visa,
+      forfait_mois: isFJ ? forfaitMois : null,
+      forfait_jours_data: isFJ ? forfaitJours.map(j => ({ day: j.day, matin: j.matin, apres_midi: j.apresMidi })) : null,
     };
   };
 
   const handleSave = async () => {
     if (!nom.trim() || !prenom.trim()) { toast.error("Nom et prénom obligatoires"); return; }
+    if (!isNew && etat === "Validé" && categorie !== "Fiche de retour Travaux imprévus") {
+      const manquantes: string[] = [];
+      if (!sigUser) manquantes.push("signature salarié");
+      if (chefEquipeId && !sigChef) manquantes.push("signature chef d'équipe");
+      if (!sigResp) manquantes.push("signature responsable");
+      if (manquantes.length > 0) {
+        toast.error(`Validation impossible — ${manquantes.join(", ")} manquante${manquantes.length > 1 ? "s" : ""}`);
+        return;
+      }
+    }
     setSaving(true);
     try {
       const data = buildData();
@@ -780,22 +990,70 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
         docId = ref.id;
         router.replace(`/feuilles-heures/${docId}`);
       } else {
-        const wasRefused = prevEtatRef.current !== "Refusé" && etat === "Refusé";
+        const prevEtat = prevEtatRef.current;
+        const wasRefused = prevEtat !== "Refusé" && etat === "Refusé";
+        const etatChanged = prevEtat !== etat;
         await updateDoc(doc(db, "Documents_fh", params.id), data);
         if (categorie === "Fiche d'heures") await saveChantiers(docId);
+
+        // Entrée historique quand l'état change
+        if (etatChanged) {
+          await addDoc(collection(db, "Documents_fh", params.id, "historique_fh"), {
+            date_action: serverTimestamp(),
+            type_action: wasRefused ? "Refus" : "Changement d'état",
+            auteur_nom: `${userApp?.prenom ?? ""} ${userApp?.nom ?? ""}`.trim(),
+            auteur_id: firebaseUser?.uid ?? "",
+            etat_de: prevEtat,
+            etat_vers: etat,
+            ...(wasRefused && motifRefus.trim() ? { commentaire: motifRefus.trim() } : {}),
+          }).catch(() => {});
+          // Mettre à jour l'état du document dans les discussions liées
+          const docFhRef = doc(db, "Documents_fh", params.id);
+          updateDiscussionEtatDocument(docFhRef, etat).catch(() => {});
+        }
+
+        // Ajouter le chef d'équipe à la discussion liée s'il n'en fait pas partie
+        if (chefEquipeId) {
+          const docFhRef = doc(db, "Documents_fh", params.id);
+          const discSnap = await getDocs(query(collection(db, "messagerie"), where("ref_document_fh", "==", docFhRef)));
+          if (!discSnap.empty) {
+            const chefRef = doc(db, "usersapp", chefEquipeId) as DocumentReference;
+            await ajouterParticipants(discSnap.docs[0].id, [chefRef]).catch(() => {});
+          }
+        }
+
         // Auto-message quand un document est refusé
-        if (wasRefused && firebaseUser && selectedUserId && selectedUserId !== firebaseUser.uid) {
+        if (wasRefused && firebaseUser && selectedUserId) {
+          const destId = selectedUserId !== firebaseUser.uid ? selectedUserId : null;
+          if (destId) {
+            try {
+              const adminRef = doc(db, "usersapp", firebaseUser.uid) as DocumentReference;
+              const motifLigne = motifRefus.trim() ? `\n\nMotif : ${motifRefus.trim()}` : "";
+              const msgText = `Bonjour,\n\nVotre document "${buildNom()}" n'a pas pu être validé et a été refusé.${motifLigne}\n\nMerci de le corriger et de le soumettre à nouveau.\n\nCordialement`;
+              const docFhRef = doc(db, "Documents_fh", params.id);
+              const existingSnap = await getDocs(query(collection(db, "messagerie"), where("ref_document_fh", "==", docFhRef)));
+              if (!existingSnap.empty) {
+                // sendMessage gère le marquage non-lu pour tous les participants
+                await sendMessage(existingSnap.docs[0].id, adminRef, msgText);
+              }
+            } catch (e) { console.error("Erreur auto-message refus :", e); }
+          }
+          setMotifRefus("");
+        }
+
+        // Auto-message quand un document est validé
+        if (etat === "Validé" && prevEtat !== "Validé" && firebaseUser) {
           try {
             const adminRef = doc(db, "usersapp", firebaseUser.uid) as DocumentReference;
-            const creatorRef = doc(db, "usersapp", selectedUserId) as DocumentReference;
-            await creerDiscussion(
-              adminRef, creatorRef,
-              `Document refusé : ${buildNom()}`,
-              userApp?.service ?? "Administration",
-              `Bonjour,\n\nVotre document "${buildNom()}" n'a pas pu être validé et a été refusé.\n\nMerci de le corriger et de le soumettre à nouveau.\n\nCordialement`
-            );
-          } catch (e) { console.error("Erreur auto-message refus :", e); }
+            const docFhRef = doc(db, "Documents_fh", params.id);
+            const existingSnap = await getDocs(query(collection(db, "messagerie"), where("ref_document_fh", "==", docFhRef)));
+            if (!existingSnap.empty) {
+              await sendMessage(existingSnap.docs[0].id, adminRef, `Le document "${buildNom()}" a été validé.`);
+            }
+          } catch (e) { console.error("Erreur auto-message validation :", e); }
         }
+
+        obsUserEdited.current = false;
         toast.success("Document mis à jour !");
       }
     } catch (e) { console.error(e); toast.error("Erreur lors de la sauvegarde"); }
@@ -807,10 +1065,17 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
     try {
       const blob = await generateDocFhPdf({
         categorie, nom, prenom, service,
+        dateCreate: dateCreate?.toLocaleDateString("fr-FR"),
         typeFH, mois, debut, fin, chantiers,
         typeAbs, debutAbs, finAbs, nbJours,
         nomCh, numCh, dateTI, naturesTravaux,
-        estMat, estH, chiffrage, accept, factImprev,
+        estMat, estH, conducteurNom: conducteurTxId ? (users.find(u => u.id === conducteurTxId)?.displayName ?? "") : "",
+        visa, chiffrage, accept, factImprev, ts, tma, cptInter, cptProrata,
+        forfaitMois,
+        forfaitJours: categorie === "Forfait Jour" ? getCalendarMonth(forfaitMois).map(cd => ({
+          ...cd, matin: forfaitJours.find(j => j.day === cd.day)?.matin ?? "",
+          apresMidi: forfaitJours.find(j => j.day === cd.day)?.apresMidi ?? "",
+        })) : undefined,
         observations, sigUser, sigChef, sigResp, nomResp, etat,
       });
       const url = URL.createObjectURL(blob);
@@ -823,25 +1088,190 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
     finally { setGeneratingPdf(false); }
   };
 
+  const handleSendPdfToMessagerie = async () => {
+    if (isNew) { toast.error("Sauvegardez d'abord le document"); return; }
+    if (!firebaseUser) return;
+    setSendingPdfMsg(true);
+    try {
+      const docFhRef = doc(db, "Documents_fh", params.id);
+      const discSnap = await getDocs(query(collection(db, "messagerie"), where("ref_document_fh", "==", docFhRef)));
+      if (discSnap.empty) { toast.error("Aucune discussion liée — envoyez d'abord le document."); return; }
+      const discId = discSnap.docs[0].id;
+      const discData = discSnap.docs[0].data();
+
+      const blob = await generateDocFhPdf({
+        categorie, nom, prenom, service,
+        dateCreate: dateCreate?.toLocaleDateString("fr-FR"),
+        typeFH, mois, debut, fin, chantiers,
+        typeAbs, debutAbs, finAbs, nbJours,
+        nomCh, numCh, dateTI, naturesTravaux,
+        estMat, estH, conducteurNom: conducteurTxId ? (users.find(u => u.id === conducteurTxId)?.displayName ?? "") : "",
+        visa, chiffrage, accept, factImprev, ts, tma, cptInter, cptProrata,
+        forfaitMois,
+        forfaitJours: categorie === "Forfait Jour" ? getCalendarMonth(forfaitMois).map(cd => ({
+          ...cd, matin: forfaitJours.find(j => j.day === cd.day)?.matin ?? "",
+          apresMidi: forfaitJours.find(j => j.day === cd.day)?.apresMidi ?? "",
+        })) : undefined,
+        observations, sigUser, sigChef, sigResp, nomResp, etat,
+      });
+      const fileName = `${categorie.replace(/[^a-zA-Z0-9]/g, "_")}-${prenom}_${nom}-${Date.now()}.pdf`;
+      const r = storageRef(storage, `messagerie/${discId}/${fileName}`);
+      await uploadBytes(r, blob, { contentType: "application/pdf" });
+      const url = await getDownloadURL(r);
+
+      const senderRef = doc(db, "usersapp", firebaseUser.uid) as DocumentReference;
+      await addDoc(collection(db, "messagerie", discId, "messages_messagerie"), {
+        ref_user: senderRef,
+        message_text: `Document PDF : ${buildNom()}`,
+        document_pdf_list: [url],
+        date_create: serverTimestamp(),
+      });
+      const participantsIds = discData.participants_ids as string[] | undefined;
+      if (participantsIds) {
+        await updateDoc(doc(db, "messagerie", discId), {
+          date_last_message: serverTimestamp(),
+          non_lus_ids: participantsIds.filter(pid => pid !== (userApp?.id ?? firebaseUser.uid)),
+        });
+      }
+      toast.success("PDF envoyé dans la messagerie !");
+    } catch (e) { console.error(e); toast.error("Erreur lors de l'envoi du PDF"); }
+    finally { setSendingPdfMsg(false); }
+  };
+
+  // Créer ET envoyer en une seule action pour "Fiche de retour Travaux imprévus"
+  const handleCreateAndSendTI = async () => {
+    if (!nom.trim() || !prenom.trim()) { toast.error("Nom et prénom obligatoires"); return; }
+    if (!firebaseUser) return;
+    setSaving(true);
+    try {
+      const data = {
+        ...buildData(),
+        date_create: serverTimestamp(),
+        create_par: doc(db, "usersapp", firebaseUser.uid),
+        etat_traitement_document: "En cours de traitement",
+        etat_envoi: "Envoyé",
+      };
+      const ref = await addDoc(collection(db, "Documents_fh"), data);
+      const docId = ref.id;
+      // Historique
+      await addDoc(collection(db, "Documents_fh", docId, "historique_fh"), {
+        date_action: serverTimestamp(),
+        type_action: "Envoi",
+        auteur_nom: `${prenom} ${nom}`.trim(),
+        auteur_id: firebaseUser.uid,
+        etat_de: "En attente",
+        etat_vers: "En cours de traitement",
+      }).catch(() => {});
+      // Messagerie : Comptabilité + Chiffrage + conducteur de travaux
+      const userRef = doc(db, "usersapp", firebaseUser.uid) as DocumentReference;
+      const [comptaSnap, chiffrageSnap] = await Promise.all([
+        getDocs(query(collection(db, "usersapp"), where("service_appartenance", "==", "Comptabilité"))),
+        getDocs(query(collection(db, "usersapp"), where("service_appartenance", "==", "Chiffrage"))),
+      ]);
+      const destRefs: DocumentReference[] = [
+        ...comptaSnap.docs.map(d => d.ref as DocumentReference),
+        ...chiffrageSnap.docs.map(d => d.ref as DocumentReference),
+      ];
+      if (destRefs.length > 0) {
+        const docFhRef = doc(db, "Documents_fh", docId);
+        const conducteurRef = conducteurTxId ? doc(db, "usersapp", conducteurTxId) as DocumentReference : null;
+        const salarieRef = selectedUserId ? doc(db, "usersapp", selectedUserId) as DocumentReference : userRef;
+        const allParticipants: DocumentReference[] = [salarieRef];
+        for (const r of destRefs) { if (r.id !== salarieRef.id) allParticipants.push(r); }
+        if (conducteurRef && !allParticipants.find(p => p.id === conducteurRef.id)) allParticipants.push(conducteurRef);
+        const msgText = `Bonjour,\n\nJe vous transmets le document "${buildNom()}" pour traitement.\n\nCordialement`;
+        await creerDiscussionGroupe(allParticipants, userRef, `Travaux imprévus ${nomCh}`, "Comptabilité", msgText, docFhRef, "En cours de traitement");
+        updateDiscussionEtatDocument(docFhRef, "En cours de traitement").catch(() => {});
+      }
+      toast.success("Document créé et envoyé !");
+      router.replace(`/feuilles-heures/${docId}`);
+    } catch (e) { console.error(e); toast.error("Erreur lors de la création/envoi"); }
+    finally { setSaving(false); }
+  };
+
   const handleEnvoyer = async () => {
     if (isNew) { toast.error("Sauvegardez d'abord le document"); return; }
+    if (categorie !== "Fiche de retour Travaux imprévus" && !sigUser) { toast.error("Vous devez signer le document avant de l'envoyer"); return; }
     if (!firebaseUser) return;
     setSending(true);
     try {
-      await updateDoc(doc(db, "Documents_fh", params.id), { etat_traitement_document: "En cours de traitement", etat_envoi: "Envoyé" });
+      const wasRefused = etat === "Refusé";
+      // Sauvegarde les modifications du formulaire + change l'état en une seule opération
+      const data = buildData();
+      await updateDoc(doc(db, "Documents_fh", params.id), {
+        ...data,
+        etat_traitement_document: "En cours de traitement",
+        etat_envoi: "Envoyé",
+      });
+      if (categorie === "Fiche d'heures") await saveChantiers(params.id);
       setEtat("En cours de traitement"); setEtatEnvoi("Envoyé");
+      // Entrée historique
+      await addDoc(collection(db, "Documents_fh", params.id, "historique_fh"), {
+        date_action: serverTimestamp(),
+        type_action: wasRefused ? "Renvoi après correction" : "Envoi",
+        auteur_nom: `${prenom} ${nom}`.trim(),
+        auteur_id: firebaseUser.uid,
+        etat_de: etat,
+        etat_vers: "En cours de traitement",
+      }).catch(() => {});
       const userRef = doc(db, "usersapp", firebaseUser.uid) as DocumentReference;
-      const compSnap = await getDocs(query(collection(db, "usersapp"), where("service_appartenance", "==", "Comptabilité")));
-      const destRef = compSnap.size > 0 ? compSnap.docs[0].ref as DocumentReference : null;
-      if (destRef) {
-        const objet = categorie === "Fiche d'heures" ? `Fiche heures ${mois} - Sem ${debut}`
-          : categorie === "Demande autorisation absence" ? `Demande absence ${typeAbs} - ${debutAbs}`
-          : `Travaux imprévus ${nomCh}`;
-        const discussionId = await creerDiscussion(userRef, destRef, objet, "Comptabilité",
-          `Bonjour,\n\nJe vous transmets le document "${buildNom()}" pour traitement.\n\nCordialement`);
-        await updateDoc(doc(db, "messagerie", discussionId), { ref_document_fh: doc(db, "Documents_fh", params.id) });
+      const serviceDestinataire = categorie === "Fiche d'heures" ? "RH" : "Comptabilité";
+
+      // Travaux imprévus : Comptabilité + Chiffrage + conducteur de travaux
+      let destRefs: DocumentReference[];
+      if (categorie === "Fiche de retour Travaux imprévus") {
+        const [comptaSnap, chiffrageSnap] = await Promise.all([
+          getDocs(query(collection(db, "usersapp"), where("service_appartenance", "==", "Comptabilité"))),
+          getDocs(query(collection(db, "usersapp"), where("service_appartenance", "==", "Chiffrage"))),
+        ]);
+        destRefs = [
+          ...comptaSnap.docs.map(d => d.ref as DocumentReference),
+          ...chiffrageSnap.docs.map(d => d.ref as DocumentReference),
+        ];
+      } else {
+        const snap = await getDocs(query(collection(db, "usersapp"), where("service_appartenance", "==", serviceDestinataire)));
+        destRefs = snap.docs.map(d => d.ref as DocumentReference);
       }
-      toast.success("Document envoyé à la comptabilité !");
+
+      if (destRefs.length > 0) {
+        const docFhRef = doc(db, "Documents_fh", params.id);
+        const msgText = wasRefused
+          ? `Bonjour,\n\nSuite au refus, j'ai corrigé le document "${buildNom()}" et vous le soumets à nouveau pour traitement.\n\nCordialement`
+          : `Bonjour,\n\nJe vous transmets le document "${buildNom()}" pour traitement.\n\nCordialement`;
+
+        const conducteurRef = conducteurTxId ? doc(db, "usersapp", conducteurTxId) as DocumentReference : null;
+        const existingSnap = await getDocs(query(collection(db, "messagerie"), where("ref_document_fh", "==", docFhRef)));
+        if (!existingSnap.empty) {
+          const discId = existingSnap.docs[0].id;
+          const salarieRef = selectedUserId ? doc(db, "usersapp", selectedUserId) as DocumentReference : userRef;
+          const chefRef = chefEquipeId ? doc(db, "usersapp", chefEquipeId) as DocumentReference : null;
+          const allRefs = [salarieRef, ...destRefs, ...(chefRef ? [chefRef] : []), ...(conducteurRef ? [conducteurRef] : [])];
+          await ajouterParticipants(discId, allRefs).catch(() => {});
+          await sendMessage(discId, userRef, msgText);
+        } else {
+          const salarieRef = selectedUserId ? doc(db, "usersapp", selectedUserId) as DocumentReference : userRef;
+          const chefRef = chefEquipeId ? doc(db, "usersapp", chefEquipeId) as DocumentReference : null;
+          const allParticipants: DocumentReference[] = [salarieRef];
+          for (const r of destRefs) { if (r.id !== salarieRef.id) allParticipants.push(r); }
+          if (chefRef && !allParticipants.find(p => p.id === chefRef.id)) allParticipants.push(chefRef);
+          if (conducteurRef && !allParticipants.find(p => p.id === conducteurRef.id)) allParticipants.push(conducteurRef);
+
+          const objet = categorie === "Fiche d'heures" ? `Fiche heures ${mois} - Sem ${debut}`
+            : categorie === "Demande autorisation absence" ? `Demande absence ${typeAbs} - ${debutAbs}`
+            : categorie === "Forfait Jour" ? buildNom()
+            : `Travaux imprévus ${nomCh}`;
+
+          await creerDiscussionGroupe(
+            allParticipants, userRef, objet, serviceDestinataire, msgText,
+            docFhRef, "En cours de traitement"
+          );
+        }
+        updateDiscussionEtatDocument(docFhRef, "En cours de traitement").catch(() => {});
+      }
+      const toastMsg = categorie === "Fiche de retour Travaux imprévus"
+        ? (wasRefused ? "Document renvoyé après correction !" : "Document envoyé à la Comptabilité, au Chiffrage et au conducteur de travaux !")
+        : (wasRefused ? "Document renvoyé après correction !" : `Document envoyé au service ${serviceDestinataire} !`);
+      toast.success(toastMsg);
     } catch (e) { console.error(e); toast.error("Erreur lors de l'envoi"); }
     finally { setSending(false); }
   };
@@ -878,12 +1308,33 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   if (loading) return <AppShell><LoadingPage /></AppShell>;
 
   const admin = isAdmin(userApp);
-  const isCreator = isNew || selectedUserId === firebaseUser?.uid;
-  const isCompta = userApp?.service === "Comptabilité";
+  const chefOuAdmin = canCreateForOthers(userApp);
+  const estSalarie = isSalarie(userApp);
+  // isCreator : vérifie contre l'UID Firebase ET l'ID Firestore. Pour les personnes externes, on vérifie create_par.
+  const isCreator = isNew || selectedUserId === firebaseUser?.uid || selectedUserId === userApp?.id
+    || (isExternal && (createParId === firebaseUser?.uid || createParId === userApp?.id));
+  const isChef = !isNew && !!chefEquipeId && chefEquipeId === firebaseUser?.uid;
+  const serviceDestinataireCourant = categorie === "Fiche d'heures" ? "RH" : "Comptabilité";
+  const isCompta = userApp?.service === serviceDestinataireCourant || userApp?.service === "Chiffrage";
   const canEditPostSend = etatEnvoi === "Envoyé" && isCompta;
-  const readOnly = !admin && !canEditPostSend && (!isCreator || etat !== "En attente");
+  // isValidated : basé sur la valeur Firestore sauvegardée (prevEtatRef), pas sur l'état du formulaire
+  const isValidated = !isNew && prevEtatRef.current === "Validé";
+  // Section 2 des Travaux imprévus : éditable uniquement par Comptabilité (ou admin)
+  const readOnlySection2 = isValidated || (!admin && userApp?.service !== "Comptabilité");
+  // Éditable : En attente ou Refusé (le salarié peut corriger), toujours éditable pour admin/compta
+  const readOnly = isValidated || (!admin && !canEditPostSend && (!isCreator || (etat !== "En attente" && etat !== "Refusé")));
   // Paramètres (type, dates, salarié) : locked for everyone once created
   const paramLocked = !isNew;
+  // readOnlyData : plus restrictif — Comptabilité ne peut pas modifier les données (heures, signatures, etc.)
+  const readOnlyData = isValidated || (!admin && (!isCreator || (etat !== "En attente" && etat !== "Refusé")));
+
+  // Alertes heures (non bloquantes)
+  const totalHeuresSemaine = categorie === "Fiche d'heures"
+    ? chantiers.reduce((s, ch) => s + ch.taches.reduce((t, r) => t + (r.case1||0) + (r.case2||0) + (r.case3||0) + (r.case4||0) + (r.case5||0), 0), 0)
+    : 0;
+  const heuresParJour = categorie === "Fiche d'heures"
+    ? [0,1,2,3,4].map(i => chantiers.reduce((s, ch) => s + ch.taches.reduce((t, r) => t + ([r.case1,r.case2,r.case3,r.case4,r.case5][i]||0), 0), 0))
+    : [0,0,0,0,0];
 
   const etatBadgeClass = etat === "Validé" ? "bg-green-100 text-green-800 border-green-200"
     : etat === "Refusé" ? "bg-red-100 text-red-700 border-red-200"
@@ -913,15 +1364,36 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                   <Send size={10} />Envoyé
                 </span>
               )}
-              <button onClick={handleDownloadPdf} disabled={generatingPdf}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary-bg border border-alternate text-xs font-semibold text-secondary-text hover:text-primary hover:border-primary/40 transition-all">
-                {generatingPdf ? <><span className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin inline-block" />PDF…</> : <><Download size={13} />PDF</>}
-              </button>
+              {!estSalarie && (
+                <button onClick={handleDownloadPdf} disabled={generatingPdf}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary-bg border border-alternate text-xs font-semibold text-secondary-text hover:text-primary hover:border-primary/40 transition-all">
+                  {generatingPdf ? <><span className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin inline-block" />PDF…</> : <><Download size={13} />PDF</>}
+                </button>
+              )}
+              {!isNew && etatEnvoi === "Envoyé" && (
+                <button onClick={handleSendPdfToMessagerie} disabled={sendingPdfMsg || generatingPdf}
+                  title="Envoyer le PDF dans la discussion messagerie liée"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary-bg border border-alternate text-xs font-semibold text-secondary-text hover:text-primary hover:border-primary/40 transition-all disabled:opacity-50">
+                  {sendingPdfMsg ? <><span className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin inline-block" />Envoi…</> : <><Share2 size={13} />Messagerie</>}
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        {!isNew && readOnly && (
+        {isValidated && (
+          <div className="flex items-center gap-2 p-3 mb-4 bg-green-50 border border-green-200 rounded-xl">
+            <Lock size={14} className="text-green-700 shrink-0" />
+            <p className="text-xs text-green-700 font-medium">Document validé — lecture seule, aucune modification possible.</p>
+          </div>
+        )}
+        {!isNew && etat === "Refusé" && isCreator && !admin && (
+          <div className="flex items-start gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-xl">
+            <Info size={14} className="text-red-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-700">Document refusé — vous pouvez le corriger puis le renvoyer.</p>
+          </div>
+        )}
+        {!isNew && readOnly && !isValidated && etat !== "Refusé" && (
           <div className="flex items-center gap-2 p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-xl">
             <Info size={14} className="text-yellow-700 shrink-0" />
             <p className="text-xs text-yellow-700">Document {etat.toLowerCase()} — modifications désactivées.</p>
@@ -938,7 +1410,23 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
           {/* ── Salarié concerné ── */}
           <div className="card p-4 space-y-3">
             <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Salarié concerné</p>
-            {admin && (
+
+            {/* Toggle Interne / Externe — chefs uniquement, à la création */}
+            {chefOuAdmin && isNew && (
+              <div className="flex rounded-xl border border-alternate overflow-hidden">
+                {[{ label: "Salarié (app)", val: false }, { label: "Personne externe", val: true }].map(opt => (
+                  <button key={String(opt.val)} type="button"
+                    onClick={() => { setIsExternal(opt.val); setSelectedUserId(""); setNom(""); setPrenom(""); setService(""); }}
+                    className={cn("flex-1 py-2 text-xs font-semibold transition-all",
+                      isExternal === opt.val ? "bg-primary text-white" : "text-secondary-text hover:bg-alternate")}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Sélecteur utilisateur — seulement si non externe */}
+            {chefOuAdmin && !isExternal && (
               <select className="input-base" value={selectedUserId} disabled={!isNew}
                 onChange={e => {
                   setSelectedUserId(e.target.value);
@@ -946,22 +1434,35 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                   if (u) { setNom(u.nom); setPrenom(u.prenom); setService(u.service ?? ""); }
                 }}>
                 <option value="">— Sélectionner —</option>
-                {users.map(u => <option key={u.id} value={u.uid || u.id}>{u.displayName}</option>)}
+                {(categorie === "Forfait Jour"
+                  ? users.filter(u => u.forfaitJour === "Forfait Jour")
+                  : users
+                ).map(u => <option key={u.id} value={u.uid || u.id}>{u.displayName}</option>)}
               </select>
             )}
+
+            {isExternal && !isNew && (
+              <p className="text-xs text-secondary-text flex items-center gap-1.5">
+                <Info size={11} className="shrink-0" />Personne externe (sans compte sur l&apos;application)
+              </p>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-secondary-text">Nom *</label>
-                <input className="input-base mt-1" value={nom} onChange={e => setNom(e.target.value)} readOnly={!isNew} />
+                <input className="input-base mt-1" value={nom} onChange={e => setNom(e.target.value)}
+                  readOnly={isExternal ? readOnlyData : (estSalarie || !isNew)} />
               </div>
               <div>
                 <label className="text-xs font-medium text-secondary-text">Prénom *</label>
-                <input className="input-base mt-1" value={prenom} onChange={e => setPrenom(e.target.value)} readOnly={!isNew} />
+                <input className="input-base mt-1" value={prenom} onChange={e => setPrenom(e.target.value)}
+                  readOnly={isExternal ? readOnlyData : (estSalarie || !isNew)} />
               </div>
             </div>
             <div>
               <label className="text-xs font-medium text-secondary-text">Service</label>
-              <select className="input-base mt-1" value={service} onChange={e => setService(e.target.value)} disabled={!isNew}>
+              <select className="input-base mt-1" value={service} onChange={e => setService(e.target.value)}
+                disabled={isExternal ? readOnlyData : (estSalarie || !isNew)}>
                 <option value="">—</option>
                 {LISTE_SERVICES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -982,7 +1483,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                 <Chips label="Type de fiche" value={typeFH} options={TYPES_FH} onChange={setTypeFH} req disabled={paramLocked} />
                 <div>
                   <label className="text-xs font-medium text-secondary-text">Mois</label>
-                  <input className="input-base mt-1" value={mois} onChange={e => setMois(e.target.value)} readOnly={paramLocked} placeholder="Ex: Janvier 2025" />
+                  <input className="input-base mt-1" value={mois} onChange={e => setMois(e.target.value)} readOnly={paramLocked} placeholder="Ex: Janvier (voir si suppr champ)" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -1007,7 +1508,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                     {!readOnly && (
                       <div className="flex gap-1">
                         {["Vue Hebdomadaire", "Vue Journalière"].map(v => (
-                          <button key={v} onClick={() => setVue(v)}
+                          <button key={v} onClick={() => !readOnlyData && setVue(v)}
                             className={cn("px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all",
                               vue === v ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text hover:border-primary/50")}>
                             {v === "Vue Hebdomadaire" ? "Semaine" : "Jour"}
@@ -1042,12 +1543,29 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                         onDeleteChantier={handleDeleteChantier}
                         onAddTache={handleAddTache}
                         onDeleteTache={handleDeleteTache}
-                        readOnly={readOnly}
+                        readOnly={readOnlyData}
                       />
                     ))}
                   </div>
 
-                  {!readOnly && (
+                  {chantiers.length > 0 && (totalHeuresSemaine > 39 || heuresParJour.some(h => h > 10)) && (
+                    <div className="space-y-1.5">
+                      {totalHeuresSemaine > 39 && (
+                        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                          <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                          <p className="text-xs text-amber-700 font-medium">Total semaine : {totalHeuresSemaine}h — dépasse 39h</p>
+                        </div>
+                      )}
+                      {heuresParJour.map((h, i) => h > 10 ? (
+                        <div key={i} className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                          <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                          <p className="text-xs text-amber-700 font-medium">{JOURS[i]} : {h}h — dépasse 10h</p>
+                        </div>
+                      ) : null)}
+                    </div>
+                  )}
+
+                  {!readOnlyData && (
                     <AddChantierPanel
                       operations={operations}
                       operationsLoaded={operationsLoaded}
@@ -1063,7 +1581,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                 <div className="card p-4">
                   <label className="text-xs font-medium text-secondary-text">Observations</label>
                   <textarea className="input-base mt-1 resize-none" rows={2} value={observations}
-                    onChange={e => setObservations(e.target.value)} readOnly={readOnly} />
+                    onChange={e => { setObservations(e.target.value); obsUserEdited.current = true; }} readOnly={readOnlyData} />
                 </div>
               )}
             </>
@@ -1075,10 +1593,10 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
               <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Demande d&apos;absence</p>
               <div className="flex flex-wrap gap-1.5">
                 {TYPES_ABSENCE.map(t => (
-                  <button key={t} onClick={() => !readOnly && setTypeAbs(t)} disabled={readOnly}
+                  <button key={t} onClick={() => !readOnlyData && setTypeAbs(t)} disabled={readOnlyData}
                     className={cn("px-3 py-1.5 rounded-badge text-xs font-semibold border transition-all",
                       typeAbs === t ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text hover:border-primary/50",
-                      readOnly && "opacity-50 cursor-not-allowed")}>
+                      readOnlyData && "opacity-50 cursor-not-allowed")}>
                     {t}
                   </button>
                 ))}
@@ -1090,18 +1608,18 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-secondary-text">Date de début</label>
-                  <input className="input-base mt-1" type="date" value={debutAbs} onChange={e => setDebutAbs(e.target.value)} readOnly={readOnly} />
+                  <input className="input-base mt-1" type="date" value={debutAbs} onChange={e => setDebutAbs(e.target.value)} readOnly={readOnlyData} />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-secondary-text">Date de fin</label>
-                  <input className="input-base mt-1" type="date" value={finAbs} onChange={e => setFinAbs(e.target.value)} readOnly={readOnly} />
+                  <input className="input-base mt-1" type="date" value={finAbs} onChange={e => setFinAbs(e.target.value)} readOnly={readOnlyData} />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-secondary-text">Nombre de jours ouvrés</label>
                 <div className="flex items-center gap-3 mt-1">
                   <input className="input-base flex-1" type="number" min="0" step="0.5" value={nbJours}
-                    onChange={e => setNbJours(e.target.value)} readOnly={readOnly} />
+                    onChange={e => setNbJours(e.target.value)} readOnly={readOnlyData} />
                   {nbJoursAuto > 0 && (
                     <span className="text-xs text-secondary bg-secondary/10 px-2.5 py-1.5 rounded-lg font-semibold whitespace-nowrap">
                       Auto : {nbJoursAuto}j
@@ -1113,7 +1631,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
               <div>
                 <label className="text-xs font-medium text-secondary-text">Observations / Motif</label>
                 <textarea className="input-base mt-1 resize-none" rows={2} value={observations}
-                  onChange={e => setObservations(e.target.value)} readOnly={readOnly} />
+                  onChange={e => setObservations(e.target.value)} readOnly={readOnlyData} />
               </div>
             </div>
           )}
@@ -1121,129 +1639,338 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
           {/* ══ TRAVAUX IMPRÉVUS ══ */}
           {categorie === "Fiche de retour Travaux imprévus" && (
             <>
+              {/* Section 1 — Identification chantier */}
               <div className="card p-4 space-y-3">
                 <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Identification chantier</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-secondary-text">Nom du chantier</label>
-                    <input className="input-base mt-1" value={nomCh} onChange={e => setNomCh(e.target.value)} readOnly={readOnly} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-secondary-text">N° chantier</label>
-                    <input className="input-base mt-1 font-mono" value={numCh} onChange={e => setNumCh(e.target.value)} readOnly={readOnly} />
-                  </div>
-                </div>
+
+                {/* Sélecteur chantier */}
                 <div>
-                  <label className="text-xs font-medium text-secondary-text">Date des travaux imprévus</label>
-                  <input className="input-base mt-1" type="date" value={dateTI} onChange={e => setDateTI(e.target.value)} readOnly={readOnly} />
+                  <label className="text-xs font-medium text-secondary-text">Chantier</label>
+                  {readOnlyData ? (
+                    <p className="input-base mt-1 font-semibold text-primary-text">{nomCh || "—"}{numCh ? ` (${numCh})` : ""}</p>
+                  ) : (
+                    <select className="input-base mt-1" value={tiOperationId}
+                      onChange={e => {
+                        setTiOperationId(e.target.value);
+                        const op = operations.find(o => o.id === e.target.value);
+                        if (op) { setNomCh(op.nomChantier); setNumCh(op.numChantier); }
+                        else { setNomCh(""); setNumCh(""); }
+                      }}>
+                      <option value="">— Sélectionner un chantier —</option>
+                      {operations.map(op => (
+                        <option key={op.id} value={op.id}>{op.nomChantier}{op.numChantier ? ` (${op.numChantier})` : ""}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-secondary-text">Compte inter</label>
-                    <input className="input-base mt-1" value={cptInter} onChange={e => setCptInter(e.target.value)} readOnly={readOnly} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-secondary-text">Compte prorata</label>
-                    <input className="input-base mt-1" value={cptProrata} onChange={e => setCptProrata(e.target.value)} readOnly={readOnly} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-secondary-text">TS travaux imprévus</label>
-                    <input className="input-base mt-1" value={ts} onChange={e => setTs(e.target.value)} readOnly={readOnly} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-secondary-text">TMA travaux imprévus</label>
-                    <input className="input-base mt-1" value={tma} onChange={e => setTma(e.target.value)} readOnly={readOnly} />
-                  </div>
-                </div>
+
+                {/* Date */}
                 <div>
-                  <label className="text-xs font-medium text-secondary-text">Natures des travaux</label>
+                  <label className="text-xs font-medium text-secondary-text">Date des travaux</label>
+                  <input className="input-base mt-1" type="date" value={dateTI} onChange={e => setDateTI(e.target.value)} readOnly={readOnlyData} />
+                </div>
+
+                {/* Nature des travaux */}
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Nature des travaux</label>
                   <textarea className="input-base mt-1 resize-none" rows={3} value={naturesTravaux}
-                    onChange={e => setNaturesTravaux(e.target.value)} readOnly={readOnly} placeholder="Décrire la nature des travaux imprévus…" />
+                    onChange={e => setNaturesTravaux(e.target.value)} readOnly={readOnlyData}
+                    placeholder="Décrire la nature des travaux imprévus…" />
+                </div>
+
+                {/* Estimations */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Estimation matériaux</label>
+                    <textarea className="input-base mt-1 resize-none" rows={2} value={estMat}
+                      onChange={e => setEstMat(e.target.value)} readOnly={readOnlyData} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Estimation heures</label>
+                    <input className="input-base mt-1" value={estH}
+                      onChange={e => setEstH(e.target.value)} readOnly={readOnlyData} placeholder="Ex: 4h" />
+                  </div>
+                </div>
+
+                {/* Conducteur de travaux */}
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Responsable facturation — conducteur de travaux (si besoin)</label>
+                  <select className="input-base mt-1" value={conducteurTxId}
+                    onChange={e => setConducteurTxId(e.target.value)}
+                    disabled={readOnlyData}>
+                    <option value="">— Aucun —</option>
+                    {users.filter(u => u.service === "Conducteur travaux").map(u => (
+                      <option key={u.id} value={u.id}>{u.displayName}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              <div className="card p-4 space-y-3">
-                <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Estimations &amp; Chiffrage</p>
-                <div>
-                  <label className="text-xs font-medium text-secondary-text">Estimations matériaux</label>
-                  <textarea className="input-base mt-1 resize-none" rows={2} value={estMat} onChange={e => setEstMat(e.target.value)} readOnly={readOnly} />
+
+              {/* Section 2 — Chiffrage & Comptabilité : visible uniquement après envoi */}
+              {etatEnvoi === "Envoyé" && <div className="card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Chiffrage &amp; Comptabilité</p>
+                  {!admin && userApp?.service !== "Comptabilité" && (
+                    <span className="text-[10px] text-secondary-text flex items-center gap-1">
+                      <Lock size={10} />Service Comptabilité uniquement
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-secondary-text">Estimations heures</label>
-                  <input className="input-base mt-1" value={estH} onChange={e => setEstH(e.target.value)} readOnly={readOnly} placeholder="Ex: 4h" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-secondary-text">Chiffrage transmis</label>
-                  <input className="input-base mt-1" value={chiffrage} onChange={e => setChiffrage(e.target.value)} readOnly={readOnly} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-secondary-text">Acceptation travaux</label>
-                  <input className="input-base mt-1" value={accept} onChange={e => setAccept(e.target.value)} readOnly={readOnly} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-secondary-text">Facturation travaux imprévus</label>
-                  <input className="input-base mt-1" value={factImprev} onChange={e => setFactImprev(e.target.value)} readOnly={readOnly} />
-                </div>
+
+                {/* Visa chiffrage */}
                 <div>
                   <label className="text-xs font-medium text-secondary-text mb-1.5 block">Visa chiffrage</label>
                   <div className="flex gap-2">
                     {["Oui", "Non"].map(v => (
-                      <button key={v} onClick={() => !readOnly && setVisa(v === "Oui")} disabled={readOnly}
+                      <button key={v} onClick={() => !readOnlySection2 && setVisa(v === "Oui")}
+                        disabled={readOnlySection2}
                         className={cn("flex-1 py-2 rounded-lg text-sm font-semibold border transition-all",
                           (visa ? "Oui" : "Non") === v ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text",
-                          readOnly && "opacity-50 cursor-not-allowed")}>
+                          readOnlySection2 && "opacity-50 cursor-not-allowed")}>
                         {v}
                       </button>
                     ))}
                   </div>
+                  <p className="text-[10px] text-secondary-text mt-1.5 leading-relaxed italic">
+                    * Mr KEVIN DOURNEAU est la seule personne habilitée à légitimer un chiffrage via le CDTX
+                  </p>
                 </div>
-              </div>
+
+                {/* Chiffrage transmis */}
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Chiffrage transmis</label>
+                  <input className="input-base mt-1" value={chiffrage}
+                    onChange={e => setChiffrage(e.target.value)} readOnly={readOnlySection2} />
+                </div>
+
+                {/* Acceptation */}
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Acceptation</label>
+                  <input className="input-base mt-1" value={accept}
+                    onChange={e => setAccept(e.target.value)} readOnly={readOnlySection2} />
+                </div>
+
+                {/* Facturation */}
+                <div>
+                  <label className="text-xs font-medium text-secondary-text">Facturation</label>
+                  <input className="input-base mt-1" value={factImprev}
+                    onChange={e => setFactImprev(e.target.value)} readOnly={readOnlySection2} />
+                </div>
+
+                {/* TS / TMA */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">TS</label>
+                    <input className="input-base mt-1" value={ts}
+                      onChange={e => setTs(e.target.value)} readOnly={readOnlySection2} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">TMA</label>
+                    <input className="input-base mt-1" value={tma}
+                      onChange={e => setTma(e.target.value)} readOnly={readOnlySection2} />
+                  </div>
+                </div>
+
+                {/* Compte inter / Compte prorata */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Compte inter</label>
+                    <input className="input-base mt-1" value={cptInter}
+                      onChange={e => setCptInter(e.target.value)} readOnly={readOnlySection2} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Compte prorata</label>
+                    <input className="input-base mt-1" value={cptProrata}
+                      onChange={e => setCptProrata(e.target.value)} readOnly={readOnlySection2} />
+                  </div>
+                </div>
+              </div>}
             </>
+          )}
+
+          {/* ══ FORFAIT JOUR ══ */}
+          {categorie === "Forfait Jour" && (
+            <div className="card p-4 space-y-3">
+              <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Document Individuel — Demi-journées et journées travaillées</p>
+
+              {/* Sélecteur mois */}
+              <div>
+                <label className="text-xs font-medium text-secondary-text">Mois concerné</label>
+                <input className="input-base mt-1" type="month" value={forfaitMois}
+                  onChange={e => setForfaitMois(e.target.value)}
+                  readOnly={!isNew && !admin} disabled={!isNew && !admin} />
+              </div>
+
+              {/* Légende */}
+              <div className="text-[10px] text-secondary-text leading-5 bg-primary-bg rounded-lg px-3 py-2 border border-alternate">
+                <span className="font-semibold">Légende :</span>
+                {" "}<span className="font-mono font-bold">X</span> demi-journée travaillée ·{" "}
+                <span className="font-mono font-bold">JR</span> demi-journée de repos ·{" "}
+                <span className="font-mono font-bold">CP</span> congé payé ·{" "}
+                <span className="font-mono font-bold">JF</span> jour férié ·{" "}
+                <span className="font-mono font-bold">RH</span> repos hebdomadaire ·{" "}
+                <span className="font-mono font-bold">ABS</span> autre absence
+              </div>
+
+              {/* Grille calendaire */}
+              {forfaitMois && (() => {
+                const calendar = getCalendarMonth(forfaitMois);
+                const weeks = [...new Set(calendar.map(d => d.weekNum))];
+                const totalMatin = forfaitJours.filter(j => j.matin === "X").length;
+                const totalAm = forfaitJours.filter(j => j.apresMidi === "X").length;
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr>
+                          <th className="border border-alternate px-2 py-1.5 text-left font-semibold text-secondary-text bg-primary-bg w-20">Jour</th>
+                          <th className="border border-alternate px-2 py-1.5 text-center font-semibold text-secondary-text bg-primary-bg w-8">N°</th>
+                          <th className="border border-alternate px-2 py-1.5 text-center font-semibold text-secondary-text bg-primary-bg">Matin</th>
+                          <th className="border border-alternate px-2 py-1.5 text-center font-semibold text-secondary-text bg-primary-bg">Après-midi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {weeks.map(wk => (
+                          <>
+                            <tr key={`wk-${wk}`}>
+                              <td colSpan={4} className="border border-alternate px-2 py-1 bg-primary/10 font-semibold text-primary text-[10px]">
+                                Semaine {wk}
+                              </td>
+                            </tr>
+                            {calendar.filter(d => d.weekNum === wk).map(({ day, weekday, isWeekend }) => {
+                              const entry = forfaitJours.find(j => j.day === day) ?? { day, matin: "", apresMidi: "" };
+                              const bg = isWeekend ? "bg-alternate/50" : "";
+                              return (
+                                <tr key={day} className={bg}>
+                                  <td className="border border-alternate px-2 py-1 text-secondary-text">{weekday}</td>
+                                  <td className="border border-alternate px-2 py-1 text-center text-secondary-text font-mono">{day}</td>
+                                  <td className="border border-alternate px-1 py-0.5">
+                                    <select
+                                      className="w-full bg-transparent text-center text-xs font-mono font-semibold focus:outline-none"
+                                      value={entry.matin}
+                                      disabled={readOnlyData}
+                                      onChange={e => setForfaitJours(prev => prev.map(j => j.day === day ? { ...j, matin: e.target.value } : j))}>
+                                      {FJ_CODES.map(c => <option key={c} value={c}>{c || "—"}</option>)}
+                                    </select>
+                                  </td>
+                                  <td className="border border-alternate px-1 py-0.5">
+                                    <select
+                                      className="w-full bg-transparent text-center text-xs font-mono font-semibold focus:outline-none"
+                                      value={entry.apresMidi}
+                                      disabled={readOnlyData}
+                                      onChange={e => setForfaitJours(prev => prev.map(j => j.day === day ? { ...j, apresMidi: e.target.value } : j))}>
+                                      {FJ_CODES.map(c => <option key={c} value={c}>{c || "—"}</option>)}
+                                    </select>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </>
+                        ))}
+                        <tr className="font-semibold bg-primary-bg">
+                          <td colSpan={2} className="border border-alternate px-2 py-1.5 text-xs">TOTAL MOIS (X)</td>
+                          <td className="border border-alternate px-2 py-1.5 text-center text-xs font-mono">{totalMatin}</td>
+                          <td className="border border-alternate px-2 py-1.5 text-center text-xs font-mono">{totalAm}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
           )}
 
           {/* ── Sections only shown after creation ── */}
           {!isNew && (
             <>
               {/* État — admin only */}
-              <div className="card p-4">
-                <Chips label="État de traitement" value={etat} options={ETATS} onChange={setEtat} disabled={!admin} />
+              <div className="card p-4 space-y-3">
+                <Chips label="État de traitement" value={etat} options={ETATS} onChange={v => { setEtat(v); if (v !== "Refusé") setMotifRefus(""); }} disabled={!admin || isValidated} />
                 {!admin && (
-                  <p className="text-xs text-secondary-text mt-2 flex items-center gap-1">
+                  <p className="text-xs text-secondary-text flex items-center gap-1">
                     <Lock size={11} />Seul un administrateur peut modifier l&apos;état.
                   </p>
                 )}
+                {admin && etat === "Refusé" && (
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Motif de refus <span className="text-secondary-text font-normal">(transmis au salarié par messagerie)</span></label>
+                    <textarea
+                      className="input-base mt-1 resize-none"
+                      rows={3}
+                      value={motifRefus}
+                      onChange={e => setMotifRefus(e.target.value)}
+                      placeholder="Expliquez ce qui doit être corrigé…"
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Signatures */}
-              <div className="card p-4 space-y-2">
+              {/* Signatures — masquées pour Travaux imprévus, signature salarié seule pour Forfait Jour */}
+              {categorie !== "Fiche de retour Travaux imprévus" && <div className="card p-4 space-y-2">
                 <p className="text-xs font-bold text-secondary-text uppercase tracking-wide mb-2">Signatures</p>
-                <div>
-                  <label className="text-xs font-medium text-secondary-text">Nom du responsable</label>
-                  <input className="input-base mt-1" value={nomResp} onChange={e => setNomResp(e.target.value)}
-                    readOnly={!admin} placeholder="Nom du responsable signataire" />
-                </div>
-                <SigCanvas label="Signature salarié" existing={sigUser} onSave={sUser} disabled={readOnly} />
-                <SigCanvas label="Signature chef d'équipe" existing={sigChef} onSave={sChef} disabled={!admin} />
-                <SigCanvas label="Signature responsable" existing={sigResp} onSave={sResp} disabled={!admin} />
-              </div>
+
+                <SigCanvas label="Signature salarié" existing={sigUser} onSave={sUser} disabled={readOnlyData} />
+
+                {/* Sélecteur chef d'équipe + signature chef — masqués pour absence et Forfait Jour */}
+                {categorie !== "Demande autorisation absence" && categorie !== "Fiche de retour Travaux imprévus" && categorie !== "Forfait Jour" && (
+                  <>
+                    {admin || !readOnlyData ? (
+                      <div className="border-t border-alternate pt-3">
+                        <label className="text-xs font-medium text-secondary-text">Chef d&apos;équipe</label>
+                        <select className="input-base mt-1" value={chefEquipeId}
+                          onChange={e => setChefEquipeId(e.target.value)}
+                          disabled={readOnlyData}>
+                          <option value="">— Aucun chef d&apos;équipe —</option>
+                          {users.map(u => <option key={u.uid} value={u.uid}>{u.displayName}</option>)}
+                        </select>
+                      </div>
+                    ) : chefEquipeName ? (
+                      <div className="border-t border-alternate pt-3 flex items-center gap-2 text-xs text-secondary-text">
+                        <span className="font-medium text-primary-text">Chef d&apos;équipe :</span>
+                        <span>{chefEquipeName}</span>
+                        {isChef && <span className="badge bg-primary/10 text-primary border-primary/20">Vous</span>}
+                      </div>
+                    ) : null}
+                    <SigCanvas label="Signature chef d'équipe" existing={sigChef} onSave={sChef} disabled={(!admin && !isChef) || isValidated} />
+                  </>
+                )}
+
+                {/* Nom + signature responsable — masqués pour Forfait Jour */}
+                {categorie !== "Forfait Jour" && (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium text-secondary-text">Nom du responsable</label>
+                      <input className="input-base mt-1" value={nomResp} onChange={e => setNomResp(e.target.value)}
+                        readOnly={!admin || isValidated} placeholder="Nom du responsable signataire" />
+                    </div>
+                    <SigCanvas label="Signature responsable" existing={sigResp} onSave={sResp} disabled={!admin || isValidated} />
+                  </>
+                )}
+              </div>}
             </>
           )}
 
           {/* ── Actions ── */}
           <div className="flex gap-3 flex-wrap">
-            {(!readOnly || isNew) && (
+            {isNew && categorie === "Fiche de retour Travaux imprévus" ? (
+              <button onClick={handleCreateAndSendTI} disabled={saving}
+                className="btn-primary flex-1 py-3 flex items-center justify-center gap-2 min-w-[160px]">
+                {saving ? <Spinner size="sm" /> : <Send size={16} />}
+                {saving ? "Envoi…" : "Créer et envoyer le document"}
+              </button>
+            ) : (!readOnly || isNew) && (
               <button onClick={handleSave} disabled={saving}
                 className="btn-primary flex-1 py-3 flex items-center justify-center gap-2 min-w-[160px]">
                 {saving ? <Spinner size="sm" /> : isNew ? <FileText size={16} /> : <Save size={16} />}
                 {saving ? "Création…" : isNew ? "Créer le document" : "Sauvegarder"}
               </button>
             )}
-            {!isNew && !readOnly && etatEnvoi !== "Envoyé" && (etat === "En attente" || admin) && (
+            {!isNew && isCreator && (etatEnvoi !== "Envoyé" || etat === "Refusé") && (etat === "En attente" || etat === "Refusé") && (
               <button onClick={handleEnvoyer} disabled={sending}
                 className="py-3 flex items-center justify-center gap-2 font-semibold text-sm rounded-xl border-2 transition-all px-4 bg-secondary/10 text-secondary-700 border-secondary/30 hover:bg-secondary/20">
                 {sending ? <Spinner size="sm" /> : <Send size={15} />}
-                {sending ? "Envoi…" : "Envoyer"}
+                {sending ? "Envoi…" : etat === "Refusé" ? "Renvoyer après correction" : "Envoyer"}
               </button>
             )}
           </div>
@@ -1275,9 +2002,49 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
           )}
 
           {!isNew && etatEnvoi === "Envoyé" && (
-            <p className="text-xs text-center text-secondary-text flex items-center justify-center gap-1.5">
-              <Send size={11} />Document envoyé à la comptabilité — en attente de traitement
-            </p>
+            <div className={cn("text-xs text-center flex items-center justify-center gap-1.5 font-medium",
+              etat === "Validé" ? "text-green-600" : etat === "Refusé" ? "text-red-600" : "text-secondary-text"
+            )}>
+              {etat === "Validé" ? <Check size={11} /> : etat === "Refusé" ? <AlertTriangle size={11} /> : <Send size={11} />}
+              {etat === "Validé"
+                ? "Document validé par la comptabilité"
+                : etat === "Refusé"
+                ? "Document refusé — consultez la messagerie pour le motif"
+                : "Document envoyé à la comptabilité — en attente de traitement"}
+            </div>
+          )}
+
+          {/* ── Historique ── */}
+          {!isNew && historique.length > 0 && (
+            <div className="card p-4 space-y-3">
+              <p className="text-xs font-bold text-secondary-text uppercase tracking-wide flex items-center gap-1.5">
+                <Clock size={13} />Historique
+              </p>
+              <div className="space-y-2">
+                {historique.map(entry => (
+                  <div key={entry.id} className={cn(
+                    "flex items-start gap-3 p-3 rounded-xl border text-xs",
+                    entry.typeAction === "Refus" ? "bg-red-50 border-red-200" : "bg-secondary-bg border-alternate"
+                  )}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={cn("font-semibold", entry.typeAction === "Refus" ? "text-red-700" : "text-primary-text")}>
+                          {entry.typeAction}
+                        </span>
+                        {entry.etatDe && entry.etatVers && (
+                          <span className="text-secondary-text">{entry.etatDe} → {entry.etatVers}</span>
+                        )}
+                      </div>
+                      <p className="text-secondary-text mt-0.5">{entry.auteurNom}</p>
+                      {entry.commentaire && (
+                        <p className="mt-1 font-medium text-red-700">Motif : {entry.commentaire}</p>
+                      )}
+                    </div>
+                    <span className="text-secondary-text shrink-0 tabular-nums">{entry.date ? formatDateTime(entry.date) : "—"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

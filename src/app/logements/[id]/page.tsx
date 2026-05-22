@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { doc, onSnapshot, updateDoc, getDocs, query, where, collection, DocumentReference, getDoc, addDoc, serverTimestamp, Timestamp, deleteDoc } from "firebase/firestore";
+import { updateBatimentFull } from "@/lib/formsService";
 import { ref as storageRef, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { arreterWorkflowByPlanning } from "@/lib/workflowRelanceService";
@@ -114,6 +115,17 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Édition bâtiment
+  const [showEditBatiment, setShowEditBatiment] = useState(false);
+  const [batNom, setBatNom] = useState("");
+  const [batRue, setBatRue] = useState("");
+  const [batCodePostal, setBatCodePostal] = useState("");
+  const [batVille, setBatVille] = useState("");
+  const [batCodeInterphone, setBatCodeInterphone] = useState("");
+  const [batInfosAcces, setBatInfosAcces] = useState("");
+  const [batDateReception, setBatDateReception] = useState("");
+  const [savingBatiment, setSavingBatiment] = useState(false);
+
   // Champs édition
   const [editNum, setEditNum] = useState("");
   const [editNom, setEditNom] = useState("");
@@ -182,7 +194,17 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
         const batId = (log.batimentRef as DocumentReference).id;
         setEditBatimentId(batId);
         const batSnap = await getDoc(log.batimentRef as DocumentReference);
-        if (batSnap.exists()) setBatiment({ id: batSnap.id, nomBatiment: batSnap.data().nom_batiment as string, adresse: batSnap.data().adresse_batiment as string });
+        if (batSnap.exists()) {
+          const bd = batSnap.data();
+          setBatiment({ id: batSnap.id, nomBatiment: bd.nom_batiment as string, adresse: bd.adresse_batiment as string });
+          setBatNom(bd.nom_batiment as string ?? "");
+          setBatRue(bd.rue_batiment as string ?? "");
+          setBatCodePostal(bd.code_postale_batiment as string ?? "");
+          setBatVille(bd.ville_batiment as string ?? "");
+          setBatCodeInterphone(bd.code_interphone as string ?? "");
+          setBatInfosAcces(bd.informations_acces as string ?? "");
+          setBatDateReception(bd.date_reception?.toDate ? (bd.date_reception.toDate() as Date).toISOString().slice(0, 10) : "");
+        }
       }
 
       // Charger tous les bâtiments du chantier
@@ -232,6 +254,26 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
       toast.success("Acteur créé et sélectionné !");
     } catch (e) { console.error(e); toast.error("Erreur lors de la création"); }
     finally { setSavingActeur(false); }
+  };
+
+  const handleSaveBatiment = async () => {
+    if (!batiment?.id) return;
+    setSavingBatiment(true);
+    try {
+      await updateBatimentFull(batiment.id, {
+        nomBatiment: batNom,
+        rue: batRue,
+        codePostal: batCodePostal,
+        ville: batVille,
+        codeInterphone: batCodeInterphone,
+        informationsAcces: batInfosAcces,
+        dateReception: batDateReception ? new Date(batDateReception) : null,
+      });
+      setBatiment(prev => prev ? { ...prev, nomBatiment: batNom, adresse: `${batRue}, ${batCodePostal} ${batVille}` } : prev);
+      setShowEditBatiment(false);
+      toast.success("Bâtiment mis à jour !");
+    } catch (e) { console.error(e); toast.error("Erreur lors de la sauvegarde"); }
+    finally { setSavingBatiment(false); }
   };
 
   const handleSave = async () => {
@@ -396,14 +438,60 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
               </div>
             </div>
             <div className="card overflow-hidden">
-              <div className="px-4 py-2.5 bg-primary-bg border-b border-alternate">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-primary-bg border-b border-alternate">
                 <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Caractéristiques</p>
+                {batiment && isAdmin(userApp) && (
+                  <button onClick={() => setShowEditBatiment(v => !v)} className="text-xs text-primary font-semibold flex items-center gap-1">
+                    {showEditBatiment ? <X size={12} /> : <Pencil size={12} />}{showEditBatiment ? "Annuler" : "Modifier bâtiment"}
+                  </button>
+                )}
               </div>
               <div className="divide-y divide-alternate/60">
                 <InfoRow icon={<Building2 size={15} />} label="Bâtiment" value={batiment?.nomBatiment} emptyText="Aucun bâtiment" />
                 <InfoRow icon={<Layers size={15} />} label="Niveau" value={logement.etageLogement !== undefined ? `Niveau ${logement.etageLogement}` : null} />
                 <InfoRow icon={<Home size={15} />} label="Occupation" value={logement.logementOccupe ? "Occupé" : "Vacant"} />
               </div>
+              {showEditBatiment && (
+                <div className="p-4 border-t border-alternate bg-primary-bg/50 space-y-3 animate-slide-up">
+                  <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Modifier le bâtiment</p>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Nom du bâtiment</label>
+                    <input className="input-base mt-1" value={batNom} onChange={e => setBatNom(e.target.value)} placeholder="Ex: Bâtiment A" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-secondary-text">Rue</label>
+                      <input className="input-base mt-1" value={batRue} onChange={e => setBatRue(e.target.value)} placeholder="12 rue des Lilas" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-secondary-text">Code postal</label>
+                      <input className="input-base mt-1" value={batCodePostal} onChange={e => setBatCodePostal(e.target.value)} placeholder="75001" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Ville</label>
+                    <input className="input-base mt-1" value={batVille} onChange={e => setBatVille(e.target.value)} placeholder="Paris" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Code interphone</label>
+                    <input className="input-base mt-1" value={batCodeInterphone} onChange={e => setBatCodeInterphone(e.target.value)} placeholder="A1234" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Informations d&apos;accès</label>
+                    <textarea className="input-base mt-1 resize-none" rows={2} value={batInfosAcces} onChange={e => setBatInfosAcces(e.target.value)} placeholder="Digicode, gardien, parking…" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Date de réception</label>
+                    <input className="input-base mt-1" type="date" value={batDateReception} onChange={e => setBatDateReception(e.target.value)} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={handleSaveBatiment} disabled={savingBatiment} className="btn-primary flex items-center gap-2 flex-1">
+                      {savingBatiment ? <Spinner size="sm" /> : <Check size={14} />}Sauvegarder
+                    </button>
+                    <button onClick={() => setShowEditBatiment(false)} className="btn-outline px-4"><X size={14} /></button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Interventions */}

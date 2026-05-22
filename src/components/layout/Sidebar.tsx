@@ -71,7 +71,7 @@ export function Sidebar() {
           </div>
           <div>
             <p className="font-bold text-primary-text text-sm leading-tight">Climat & Confort</p>
-            <p className="text-xs text-secondary-text">Moreau</p>
+            <p className="font-bold text-primary-text text-sm leading-tight">Moreau</p>
           </div>
         </div>
       </div>
@@ -99,7 +99,7 @@ export function Sidebar() {
       {/* Navigation scrollable */}
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto min-h-0">
         {filteredItems.map(item => {
-          const isActive = pageActuelle === item.page || pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+          const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href + "/"));
           return (
             <button key={item.href} onClick={() => { setPageActuelle(item.page); router.push(item.href); }}
               className={cn("sidebar-link w-full text-left", isActive && "active")}>

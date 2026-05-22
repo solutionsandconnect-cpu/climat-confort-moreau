@@ -13,6 +13,7 @@ export interface ChantierFhPdf {
 export interface DocFhPdfData {
   categorie: string;
   nom: string; prenom: string; service?: string;
+  dateCreate?: string;
   // Fiche d'heures
   typeFH?: string; mois?: string; debut?: string; fin?: string;
   chantiers?: ChantierFhPdf[];
@@ -20,7 +21,12 @@ export interface DocFhPdfData {
   typeAbs?: string; debutAbs?: string; finAbs?: string; nbJours?: string | number;
   // Travaux imprévus
   nomCh?: string; numCh?: string; dateTI?: string; naturesTravaux?: string;
-  estMat?: string; estH?: string; chiffrage?: string; accept?: string; factImprev?: string;
+  estMat?: string; estH?: string; conducteurNom?: string;
+  visa?: boolean; chiffrage?: string; accept?: string; factImprev?: string;
+  ts?: string; tma?: string; cptInter?: string; cptProrata?: string;
+  // Forfait Jour
+  forfaitMois?: string;
+  forfaitJours?: Array<{day: number; weekday: string; weekNum: number; isWeekend: boolean; matin: string; apresMidi: string}>;
   // Commun
   observations?: string;
   sigUser?: string; sigChef?: string; sigResp?: string; nomResp?: string;
@@ -46,12 +52,15 @@ function statusStyle(etat?: string): string {
 
 function buildHtml(data: DocFhPdfData): string {
   const jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+  const isAbsence = data.categorie === "Demande autorisation absence";
+  const dateTelechargement = new Date().toLocaleDateString("fr-FR");
 
   const header = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:14px;border-bottom:3px solid #1a1a2e;">
       <div>
         <div style="font-size:18px;font-weight:800;color:#1a1a2e;letter-spacing:-0.5px;">Climat & Confort Moreau</div>
         <div style="font-size:14px;font-weight:600;color:#555;margin-top:3px;">${data.categorie}</div>
+        <div style="font-size:10px;color:#888;margin-top:5px;">Créé le ${data.dateCreate || "—"} · Téléchargé le ${dateTelechargement}</div>
       </div>
       ${data.etat ? `<span style="padding:4px 14px;border-radius:99px;font-size:12px;font-weight:700;${statusStyle(data.etat)}">${data.etat}</span>` : ""}
     </div>`;
@@ -61,12 +70,12 @@ function buildHtml(data: DocFhPdfData): string {
       <tr style="background:#f1f5f9;">
         <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Salarié</th>
         <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Service</th>
-        <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Type</th>
+        ${!isAbsence ? `<th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Type</th>` : ""}
       </tr>
       <tr>
         <td style="padding:8px 10px;font-size:13px;font-weight:600;border:1px solid #cbd5e1;">${data.prenom} ${data.nom}</td>
         <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.service || "—"}</td>
-        <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.typeFH || "—"}</td>
+        ${!isAbsence ? `<td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.typeFH || "—"}</td>` : ""}
       </tr>
     </table>`;
 
@@ -140,48 +149,120 @@ function buildHtml(data: DocFhPdfData): string {
 
   } else if (data.categorie === "Fiche de retour Travaux imprévus") {
     content = `
+      <div style="font-size:11px;font-weight:700;color:#1a1a2e;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Identification chantier</div>
       <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
         <tr style="background:#f1f5f9;">
-          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:50%;">Chantier</th>
-          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:25%;">N° Chantier</th>
-          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:25%;">Date</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:45%;">Chantier</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:20%;">N° Chantier</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:20%;">Date</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:15%;">Resp. fact.</th>
         </tr>
         <tr>
           <td style="padding:8px 10px;font-size:12px;font-weight:600;border:1px solid #cbd5e1;">${data.nomCh || "—"}</td>
           <td style="padding:8px 10px;font-size:12px;font-family:monospace;border:1px solid #cbd5e1;">${data.numCh || "—"}</td>
           <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${fmt(data.dateTI)}</td>
+          <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.conducteurNom || "—"}</td>
         </tr>
       </table>
-      ${data.naturesTravaux ? `<div style="margin-bottom:14px;"><p style="font-size:11px;color:#475569;font-weight:700;margin:0 0 4px 0;">Nature des travaux</p><p style="font-size:12px;color:#333;background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #cbd5e1;margin:0;">${data.naturesTravaux}</p></div>` : ""}
-      <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
+      ${data.naturesTravaux ? `<div style="margin-bottom:10px;"><p style="font-size:11px;color:#475569;font-weight:700;margin:0 0 4px 0;">Nature des travaux</p><p style="font-size:12px;color:#333;background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #cbd5e1;margin:0;">${data.naturesTravaux}</p></div>` : ""}
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
         <tr style="background:#f1f5f9;">
           <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Estim. matériaux</th>
           <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Estim. heures</th>
-          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Chiffrage transmis</th>
-          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Acceptation</th>
         </tr>
         <tr>
           <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.estMat || "—"}</td>
           <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.estH || "—"}</td>
+        </tr>
+      </table>
+      <div style="font-size:11px;font-weight:700;color:#1a1a2e;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Chiffrage &amp; Comptabilité</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+        <tr style="background:#f1f5f9;">
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Visa chiffrage</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Chiffrage transmis</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Acceptation</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Facturation</th>
+        </tr>
+        <tr>
+          <td style="padding:8px 10px;font-size:12px;font-weight:700;border:1px solid #cbd5e1;${data.visa ? "color:#166534;background:#dcfce7;" : ""}">${data.visa ? "OUI" : "NON"}</td>
           <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.chiffrage || "—"}</td>
           <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.accept || "—"}</td>
+          <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.factImprev || "—"}</td>
+        </tr>
+      </table>
+      <p style="font-size:9px;color:#888;font-style:italic;margin-bottom:12px;">* Mr KEVIN DOURNEAU est la seule personne habilitée à légitimer un chiffrage via le CDTX</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
+        <tr style="background:#f1f5f9;">
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">TS</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">TMA</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Compte inter</th>
+          <th style="text-align:left;padding:7px 10px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;">Compte prorata</th>
+        </tr>
+        <tr>
+          <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.ts || "—"}</td>
+          <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.tma || "—"}</td>
+          <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.cptInter || "—"}</td>
+          <td style="padding:8px 10px;font-size:12px;border:1px solid #cbd5e1;">${data.cptProrata || "—"}</td>
         </tr>
       </table>`;
+
+  } else if (data.categorie === "Forfait Jour") {
+    const jours = data.forfaitJours ?? [];
+    const weeks = [...new Set(jours.map(j => j.weekNum))];
+    const totalM = jours.filter(j => j.matin === "X").length;
+    const totalA = jours.filter(j => j.apresMidi === "X").length;
+    const legende = `<div style="margin-bottom:12px;font-size:10px;color:#555;line-height:1.8;">
+      <span style="font-weight:700;">Légende :</span>
+      <b>X</b> demi-journée travaillée &nbsp;·&nbsp; <b>JR</b> demi-journée de repos &nbsp;·&nbsp; <b>CP</b> journée de congé payé &nbsp;·&nbsp; <b>JF</b> jour férié &nbsp;·&nbsp; <b>RH</b> repos hebdomadaire &nbsp;·&nbsp; <b>ABS</b> autre absence
+      <span style="float:right;font-weight:700;font-style:italic;">Signature :</span>
+    </div>`;
+    const rows = weeks.map(wk => {
+      const wkLabel = `<tr><td colspan="4" style="background:#eef2ff;padding:4px 8px;font-size:10px;font-weight:700;color:#3730a3;border:1px solid #cbd5e1;">Semaine ${wk}</td></tr>`;
+      const dayRows = jours.filter(j => j.weekNum === wk).map(j => {
+        const bg = j.isWeekend ? "background:#f1f5f9;" : "";
+        const val = (v: string) => v ? `<b>${v}</b>` : "—";
+        return `<tr style="${bg}">
+          <td style="padding:4px 8px;font-size:11px;border:1px solid #cbd5e1;">${j.weekday}</td>
+          <td style="padding:4px 8px;font-size:11px;text-align:center;border:1px solid #cbd5e1;font-family:monospace;">${j.day}</td>
+          <td style="padding:4px 8px;font-size:11px;text-align:center;border:1px solid #cbd5e1;font-family:monospace;">${val(j.matin)}</td>
+          <td style="padding:4px 8px;font-size:11px;text-align:center;border:1px solid #cbd5e1;font-family:monospace;">${val(j.apresMidi)}</td>
+        </tr>`;
+      }).join("");
+      return wkLabel + dayRows;
+    }).join("");
+    content = `${legende}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px;">
+      <thead>
+        <tr style="background:#f1f5f9;">
+          <th style="text-align:left;padding:5px 8px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:25%;">Jour</th>
+          <th style="text-align:center;padding:5px 8px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:8%;">N°</th>
+          <th style="text-align:center;padding:5px 8px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:33%;">Matin</th>
+          <th style="text-align:center;padding:5px 8px;font-size:11px;color:#475569;font-weight:700;border:1px solid #cbd5e1;width:33%;">Après midi</th>
+        </tr>
+      </thead>
+      <tbody>${rows}
+        <tr style="background:#f8fafc;font-weight:700;">
+          <td colspan="2" style="padding:6px 8px;font-size:11px;border:1px solid #cbd5e1;">TOTAL MOIS (X)</td>
+          <td style="padding:6px 8px;font-size:13px;text-align:center;border:1px solid #cbd5e1;font-family:monospace;">${totalM}</td>
+          <td style="padding:6px 8px;font-size:13px;text-align:center;border:1px solid #cbd5e1;font-family:monospace;">${totalA}</td>
+        </tr>
+      </tbody>
+    </table>`;
   }
 
   const sigSection = `
     <div style="margin-top:20px;padding-top:14px;border-top:2px solid #e2e8f0;">
       <table style="width:100%;border-collapse:collapse;">
         <tr>
-          <td style="padding:10px;text-align:center;border:1px solid #cbd5e1;width:33%;">
+          <td style="padding:10px;text-align:center;border:1px solid #cbd5e1;width:${isAbsence ? "50%" : "33%"};">
             <div style="font-size:10px;color:#475569;font-weight:700;margin-bottom:8px;">SALARIÉ</div>
             ${sigImg(data.sigUser)}
           </td>
-          <td style="padding:10px;text-align:center;border:1px solid #cbd5e1;width:33%;">
+          ${!isAbsence ? `<td style="padding:10px;text-align:center;border:1px solid #cbd5e1;width:33%;">
             <div style="font-size:10px;color:#475569;font-weight:700;margin-bottom:8px;">CHEF D'ÉQUIPE</div>
             ${sigImg(data.sigChef)}
-          </td>
-          <td style="padding:10px;text-align:center;border:1px solid #cbd5e1;width:34%;">
+          </td>` : ""}
+          <td style="padding:10px;text-align:center;border:1px solid #cbd5e1;width:${isAbsence ? "50%" : "34%"};">
             <div style="font-size:10px;color:#475569;font-weight:700;margin-bottom:8px;">${(data.nomResp || "RESPONSABLE").toUpperCase()}</div>
             ${sigImg(data.sigResp)}
           </td>

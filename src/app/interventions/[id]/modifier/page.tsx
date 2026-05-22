@@ -7,15 +7,16 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   doc, getDoc, updateDoc, deleteDoc, getDocs, collection, query,
-  where, addDoc, serverTimestamp, DocumentReference,
+  where, addDoc, serverTimestamp, DocumentReference, Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import { subscribeIntervention, type InterventionDetail } from "@/lib/formsService";
 import { LoadingPage, Spinner } from "@/components/ui";
-import { cn } from "@/lib/utils";
-import { ArrowLeft, Check, Trash2, User, AlertTriangle } from "lucide-react";
+import { cn, formatDate } from "@/lib/utils";
+import { ArrowLeft, Check, Trash2, User, AlertTriangle, Calendar } from "lucide-react";
+import { format } from "date-fns";
 import toast from "react-hot-toast";
 
 const TYPES_DEMANDE = ["Réserve", "GPA", "DO", "Demande direct"];
@@ -43,6 +44,8 @@ export default function ModifierInterventionPage({ params }: { params: { id: str
   const [mailFact, setMailFact] = useState("");
   const [infosFact, setInfosFact] = useState("");
 
+  const [dateDemande, setDateDemande] = useState("");
+
   // Technicien
   const [typeTech, setTypeTech] = useState("Climat & Confort Moreau");
   const [techniciens, setTechniciens] = useState<UserOption[]>([]);
@@ -62,6 +65,7 @@ export default function ModifierInterventionPage({ params }: { params: { id: str
       setNomFact(item.nomFacturation ?? "");
       setMailFact(item.mailFacturation ?? "");
       setInfosFact(item.infosFacturation ?? "");
+      setDateDemande(item.dateDemande ? format(item.dateDemande, "yyyy-MM-dd") : "");
       if (item.sousTraitant) { setTypeTech("Sous-traitant"); setSousTraitant(item.sousTraitant); }
       else if (item.refUsers) setSelectedTechId(item.refUsers.id);
       setLoading(false);
@@ -85,6 +89,7 @@ export default function ModifierInterventionPage({ params }: { params: { id: str
         nom_facturation: nomFact,
         mail_facturation: mailFact,
         infos_facturation: infosFact,
+        date_demande: dateDemande ? Timestamp.fromDate(new Date(dateDemande)) : null,
       };
 
       // Technicien
@@ -167,6 +172,12 @@ export default function ModifierInterventionPage({ params }: { params: { id: str
           <div className="card p-4">
             <label className="text-xs font-bold text-secondary-text uppercase tracking-wide block mb-2">Temps alloué (heures)</label>
             <input className="input-base" type="number" step="0.5" min="0" value={tempsAlloue} onChange={e => setTempsAlloue(e.target.value)} placeholder="Ex: 2.5" />
+          </div>
+
+          {/* Date de demande */}
+          <div className="card p-4">
+            <label className="text-xs font-bold text-secondary-text uppercase tracking-wide block mb-2"><Calendar size={13} className="inline mr-1.5" />Date de demande</label>
+            <input className="input-base" type="date" value={dateDemande} onChange={e => setDateDemande(e.target.value)} />
           </div>
 
           {/* Facturation */}

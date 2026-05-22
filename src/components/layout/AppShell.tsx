@@ -6,7 +6,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { collection, query, where, onSnapshot, doc, getDocs } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDocs, updateDoc, serverTimestamp } from "firebase/firestore";
 import type { DocumentReference } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthStore } from "@/store/authStore";
@@ -20,14 +20,16 @@ import toast from "react-hot-toast";
 interface AppShellProps {
   children: React.ReactNode;
   className?: string;
+  noPadBottom?: boolean;
 }
 
-export function AppShell({ children, className }: AppShellProps) {
+export function AppShell({ children, className, noPadBottom }: AppShellProps) {
   const { firebaseUser, userApp, initialized, setMessagesNonLus, setNotificationsNonLues, setJournalInterneNonLu } = useAuthStore();
   const router = useRouter();
 
   const msgDestCount = useRef(0);
   const msgCreatCount = useRef(0);
+  const msgGroupCount = useRef(0);
 
   useEffect(() => {
     if (initialized && !firebaseUser) {
@@ -35,23 +37,30 @@ export function AppShell({ children, className }: AppShellProps) {
     }
   }, [firebaseUser, initialized, router]);
 
-  // Subscribe to unread messages (as destinataire + as créateur)
+  // Subscribe to unread messages (ancien format 1-à-1 + nouveau format groupes)
   useEffect(() => {
     if (!firebaseUser) return;
     const userRef = doc(db, "usersapp", firebaseUser.uid);
+    const userId = userApp?.id ?? firebaseUser.uid;
+    const total = () => setMessagesNonLus(msgDestCount.current + msgCreatCount.current + msgGroupCount.current);
 
     const unsubDest = onSnapshot(
       query(collection(db, "messagerie"), where("user_destinataire", "==", userRef), where("etat_message_destinataire", "==", false)),
-      snap => { msgDestCount.current = snap.size; setMessagesNonLus(msgDestCount.current + msgCreatCount.current); }
+      snap => { msgDestCount.current = snap.size; total(); }
     );
     const unsubCreat = onSnapshot(
       query(collection(db, "messagerie"), where("user_create", "==", userRef), where("etat_message_expediteur", "==", false)),
-      snap => { msgCreatCount.current = snap.size; setMessagesNonLus(msgDestCount.current + msgCreatCount.current); }
+      snap => { msgCreatCount.current = snap.size; total(); }
+    );
+    const unsubGroup = onSnapshot(
+      query(collection(db, "messagerie"), where("non_lus_ids", "array-contains", userId)),
+      snap => { msgGroupCount.current = snap.size; total(); },
+      () => {}
     );
 
-    return () => { unsubDest(); unsubCreat(); };
+    return () => { unsubDest(); unsubCreat(); unsubGroup(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firebaseUser?.uid]);
+  }, [firebaseUser?.uid, userApp?.id]);
 
   // Subscribe to unread journal items
   useEffect(() => {
@@ -86,6 +95,14 @@ export function AppShell({ children, className }: AppShellProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firebaseUser?.uid]);
 
+  // Mise à jour last_login à chaque visite (sauf impersonation)
+  useEffect(() => {
+    if (!firebaseUser || !userApp) return;
+    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("__impersonating")) return;
+    updateDoc(doc(db, "usersapp", userApp.id), { last_login: serverTimestamp() }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseUser?.uid]);
+
   // Initialiser les push notifications FCM
   useEffect(() => {
     if (!firebaseUser || !userApp) return;
@@ -115,15 +132,17 @@ export function AppShell({ children, className }: AppShellProps) {
   if (!firebaseUser) return null;
 
   return (
-    <div className="flex min-h-screen bg-primary-bg">
+    <div className={cn("flex bg-primary-bg", noPadBottom ? "h-[100dvh] overflow-hidden" : "min-h-screen")}>
       {/* Sidebar desktop */}
       <Sidebar />
 
       {/* Contenu principal */}
       <main
         className={cn(
-          "flex-1 min-h-screen overflow-x-hidden",
-          "pb-20 lg:pb-6", // padding bas pour la nav mobile
+          "flex-1 overflow-x-hidden",
+          noPadBottom
+            ? "h-full overflow-hidden"
+            : "min-h-screen pb-20 lg:pb-6",
           className
         )}
       >

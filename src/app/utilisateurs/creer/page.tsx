@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
 const ROLES = ["Utilisateur", "SuperAdmin"];
-const TYPES = ["Conducteur de Travaux", "Technicien", "Service SAV / Expertises", "Bureau Administratif", "Magasin", "Chiffrage"];
+const TYPES = ["Chef de chantier Plomberie", "Chef de chantier Electricité", "Technicien SAV", "Compagnon Plomberie", "Compagnon Electricité", "Conducteur de Travaux", "Service SAV / Expertises", "Bureau Etude", "Bureau Administratif"];
 
 export default function CreerComptePage() {
   const router = useRouter();

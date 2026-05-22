@@ -85,12 +85,14 @@ function AjoutBatimentPageContent() {
   if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé.</div></AppShell>;
   if (!chantierId) return <AppShell><div className="p-8 text-center">Chantier non spécifié.</div></AppShell>;
 
+  const returnTo = searchParams.get("returnTo");
+
   const handleSubmit = async () => {
     if (!nom.trim()) { toast.error("Le nom du bâtiment est obligatoire"); return; }
     if (!firebaseUser) return;
     setSaving(true);
     try {
-      await createBatimentFull({
+      const newId = await createBatimentFull({
         nomBatiment: nom, rue, codePostal: cp, ville,
         codeInterphone, informationsAcces: infosAcces,
         dateReception: dateReception ? new Date(dateReception) : undefined,
@@ -98,7 +100,11 @@ function AjoutBatimentPageContent() {
         createParRef: doc(db, "usersapp", firebaseUser.uid) as DocumentReference,
       });
       toast.success("Bâtiment créé !");
-      router.replace(`/chantiers/${chantierId}`);
+      if (returnTo === "logement") {
+        router.replace(`/logements/ajout?chantier=${chantierId}&batimentId=${newId}`);
+      } else {
+        router.replace(`/chantiers/${chantierId}`);
+      }
     } catch (e) { console.error(e); toast.error("Erreur lors de la création"); }
     finally { setSaving(false); }
   };

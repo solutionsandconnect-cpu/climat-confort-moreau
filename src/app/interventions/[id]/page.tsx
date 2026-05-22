@@ -218,6 +218,9 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
   const [editingPhaseNum, setEditingPhaseNum] = useState<2 | 3 | 4 | null>(null);
   const [editPhaseDate, setEditPhaseDate] = useState("");
   const [savingPhaseEdit, setSavingPhaseEdit] = useState(false);
+  const [editingAnnotationNum, setEditingAnnotationNum] = useState<2 | 3 | 4 | null>(null);
+  const [annotationText, setAnnotationText] = useState("");
+  const [savingAnnotation, setSavingAnnotation] = useState(false);
 
   // Suppression
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -471,6 +474,17 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
     if (notifId) await updateDoc(doc(db, "Notifications", notifId), { etat_notification: "Lue", date_lecture: serverTimestamp() }).catch(() => {});
     await updateDoc(doc(db, "Workflow_relance", workflow.id), { [fieldMap[phaseNum]]: null });
     toast.success("Relance supprimée");
+  };
+
+  const handleSaveAnnotation = async (phaseNum: 2 | 3 | 4) => {
+    if (!workflow) return;
+    setSavingAnnotation(true);
+    try {
+      const fieldMap: Record<2|3|4, string> = { 2: "note_phase_2", 3: "note_phase_3", 4: "note_phase_4" };
+      await updateDoc(doc(db, "Workflow_relance", workflow.id), { [fieldMap[phaseNum]]: annotationText });
+      setEditingAnnotationNum(null);
+      toast.success("Annotation enregistrée");
+    } catch { toast.error("Erreur"); } finally { setSavingAnnotation(false); }
   };
 
   const handleLancerWorkflow = async () => {
@@ -831,17 +845,27 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                 <p className="text-sm font-semibold">{techNom || <span className="text-secondary-text italic font-normal">Non assigné</span>}</p>
                 {inter.sousTraitant && !inter.refUsers && <span className="badge bg-orange-100 text-orange-700 border-orange-200 text-xs mt-0.5">Sous-traitant</span>}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-col gap-1.5 shrink-0 items-end">
                 {techNom && <button onClick={loadPlanningTech} className="text-xs text-primary font-semibold flex items-center gap-1"><Calendar size={12} />Planning</button>}
-                <button onClick={() => {
-                  setAssignTechId(inter.refUsers?.id ?? "");
-                  setSousTraitantNom(inter.sousTraitant ?? "");
-                  setAssignMode(inter.sousTraitant && !inter.refUsers ? "sous-traitant" : "tech");
-                  setExpandedTechPlanning(null);
-                  setShowAssignTech(true);
-                }} className="btn-outline text-xs px-2.5 py-1.5 flex items-center gap-1">
-                  <User size={12} />{techNom ? "Changer" : "Assigner"}
-                </button>
+                <div className="flex flex-col gap-1">
+                  {techNom && (
+                    <button onClick={async () => {
+                      try { await updateDoc(planRef, { ref_users: null, sous_traitant_si_pas_tech: null }); setTechNom(""); toast.success("Technicien désassigné"); }
+                      catch { toast.error("Erreur"); }
+                    }} className="btn-outline text-xs px-2.5 py-1.5 flex items-center gap-1 text-error border-error/30 hover:bg-red-50">
+                      <X size={12} />Désassigner
+                    </button>
+                  )}
+                  <button onClick={() => {
+                    setAssignTechId(inter.refUsers?.id ?? "");
+                    setSousTraitantNom(inter.sousTraitant ?? "");
+                    setAssignMode(inter.sousTraitant && !inter.refUsers ? "sous-traitant" : "tech");
+                    setExpandedTechPlanning(null);
+                    setShowAssignTech(true);
+                  }} className="btn-outline text-xs px-2.5 py-1.5 flex items-center gap-1">
+                    <User size={12} />{techNom ? "Changer" : "Assigner"}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -929,6 +953,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
               {/* Autres infos */}
               {[
                 ["Statut RDV", inter.statutRdv],
+                ["Date de demande", inter.dateDemande ? formatDate(inter.dateDemande) : null],
                 ["Temps alloué", inter.tempsAlloue ? `${inter.tempsAlloue}h` : null],
                 ["Nom facturation", inter.nomFacturation],
                 ["Email facturation", inter.mailFacturation],
@@ -996,10 +1021,10 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
             {workflow?.statut === "actif" && (() => {
               const now = new Date();
               const phases = [
-                { num: 1, label: "Appel initial — sans réponse", date: workflow.datePhase1, icon: <Phone size={13} />, type: "done" },
-                { num: 2, label: "Rappel téléphonique", date: workflow.dateRelance2, icon: <Phone size={13} />, action: workflow.telContact ? `tel:${workflow.telContact}` : null, actionLabel: workflow.telContact ? `Appeler ${workflow.telContact}` : null, type: workflow.dateRelance2 && workflow.dateRelance2 <= now ? "due" : "future" },
-                { num: 3, label: "Email de relance (manuel)", date: workflow.dateRelance3, icon: <Mail size={13} />, action: workflow.mailContact ? `mailto:${workflow.mailContact}?subject=Demande de rendez-vous – ${workflow.quitusNumero || "Intervention"}` : null, actionLabel: workflow.mailContact ? `Envoyer à ${workflow.mailContact}` : null, type: workflow.dateRelance3 && workflow.dateRelance3 <= now ? "due" : "future" },
-                { num: 4, label: "Email automatique", date: workflow.dateRelance4, icon: <Mail size={13} />, type: workflow.dateRelance4 && workflow.dateRelance4 <= now ? "due" : "future",
+                { num: 1, label: "Appel initial — sans réponse", date: workflow.datePhase1, icon: <Phone size={13} />, type: "done", notePhase: workflow.noteInitiale },
+                { num: 2, label: "Rappel téléphonique", date: workflow.dateRelance2, icon: <Phone size={13} />, action: workflow.telContact ? `tel:${workflow.telContact}` : null, actionLabel: workflow.telContact ? `Appeler ${workflow.telContact}` : null, type: workflow.dateRelance2 && workflow.dateRelance2 <= now ? "due" : "future", notePhase: workflow.notePhase2 },
+                { num: 3, label: "Email de relance (manuel)", date: workflow.dateRelance3, icon: <Mail size={13} />, action: workflow.mailContact ? `mailto:${workflow.mailContact}?subject=Demande de rendez-vous – ${workflow.quitusNumero || "Intervention"}` : null, actionLabel: workflow.mailContact ? `Envoyer à ${workflow.mailContact}` : null, type: workflow.dateRelance3 && workflow.dateRelance3 <= now ? "due" : "future", notePhase: workflow.notePhase3 },
+                { num: 4, label: "Email automatique", date: workflow.dateRelance4, icon: <Mail size={13} />, type: workflow.dateRelance4 && workflow.dateRelance4 <= now ? "due" : "future", notePhase: workflow.notePhase4,
                   autoMail: `mailto:${workflow.mailContact}?subject=${encodeURIComponent(`Demande d'intervention – ${workflow.quitusNumero || ""} – Logement ${workflow.numLogement || ""}`)}&body=${encodeURIComponent(`Bonjour${workflow.nomContact ? ` ${workflow.nomContact}` : ""},\n\nNous vous contactons suite à plusieurs tentatives pour convenir d'un rendez-vous concernant une intervention à réaliser pour le logement ${workflow.numLogement || ""}.\n\nMerci de nous contacter au plus tôt afin de planifier cette intervention.\n\nCordialement,\nClimat & Confort Moreau`)}` },
               ] as const;
               return (
@@ -1023,14 +1048,15 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                           </p>
                           {phase.date && <p className="text-xs text-secondary-text mt-0.5">{phase.type === "done" ? "Effectué le " : "Prévu le "}{format(phase.date, "dd/MM/yyyy", { locale: fr })}</p>}
                           {phase.num === 1 && workflow.noteInitiale && <p className="text-xs text-secondary-text italic mt-0.5">{workflow.noteInitiale}</p>}
+                          {phase.num !== 1 && phase.notePhase && <p className="text-xs text-secondary-text italic mt-0.5">{phase.notePhase}</p>}
                           {"action" in phase && phase.action && phase.type === "due" && (
                             <a href={phase.action} className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-lg hover:bg-primary/20 transition-colors">
                               {phase.icon}{phase.actionLabel}
                             </a>
                           )}
                           {"autoMail" in phase && phase.autoMail && phase.type === "due" && (
-                            <a href={phase.autoMail} className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-lg hover:bg-primary/20 transition-colors">
-                              <Mail size={12} />Ouvrir l&apos;email automatique
+                            <a href={phase.autoMail} className="mt-2 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 transition-colors w-full justify-center">
+                              <Mail size={14} />Envoyer l&apos;email automatique
                             </a>
                           )}
                           {/* Contrôles modifier/supprimer pour phases 2, 3, 4 */}
@@ -1057,6 +1083,26 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                                   <Trash2 size={10} />Supprimer
                                 </button>
                               </div>
+                            )
+                          )}
+                          {/* Annotation par phase */}
+                          {phase.num !== 1 && (
+                            editingAnnotationNum === (phase.num as 2|3|4) ? (
+                              <div className="mt-2 space-y-1.5">
+                                <textarea className="input-base resize-none text-xs py-1.5" rows={2} value={annotationText} onChange={e => setAnnotationText(e.target.value)} placeholder="Annotation sur cette relance…" />
+                                <div className="flex gap-2">
+                                  <button onClick={() => handleSaveAnnotation(phase.num as 2|3|4)} disabled={savingAnnotation} className="btn-primary text-xs px-2.5 py-1.5 flex items-center gap-1">
+                                    {savingAnnotation ? <Spinner size="sm" /> : <Check size={11} />}Enregistrer
+                                  </button>
+                                  <button onClick={() => setEditingAnnotationNum(null)} className="btn-outline text-xs px-2 py-1.5"><X size={11} /></button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setAnnotationText(phase.notePhase ?? ""); setEditingAnnotationNum(phase.num as 2|3|4); }}
+                                className="text-xs text-secondary-text flex items-center gap-1 hover:text-primary transition-colors mt-1">
+                                <Pencil size={10} />{phase.notePhase ? "Modifier annotation" : "Annoter"}
+                              </button>
                             )
                           )}
                         </div>

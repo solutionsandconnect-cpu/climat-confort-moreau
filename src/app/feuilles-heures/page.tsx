@@ -2,18 +2,18 @@
 // src/app/feuilles-heures/page.tsx
 // Liste des documents FH avec les 3 types : Fiche d'heures / Demande absence / Travaux imprévus
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { collection, query, where, orderBy, onSnapshot, doc, Timestamp, DocumentReference, getDocs, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canCreateForOthers } from "@/store/authStore";
 import { EmptyState, LoadingPage, SearchInput, FilterChip, Spinner } from "@/components/ui";
 import { cn, formatDate } from "@/lib/utils";
 import { FileText, Plus, ChevronDown, ChevronUp, CheckCircle2, Pencil, Send, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
-const CATS = ["Fiche d'heures", "Demande autorisation absence", "Fiche de retour Travaux imprévus"];
+const CATS = ["Fiche d'heures", "Demande autorisation absence", "Fiche de retour Travaux imprévus", "Forfait Jour"];
 const TYPES_FH = ["Plomberie", "Électricité", "SAV", "Atelier", "Dessin", "Magasin"];
 
 interface DocFH {
@@ -66,21 +66,14 @@ function DocCard({ doc: item, userName, onEdit, onDelete, currentUserId, isUserA
   const [open, setOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const confirmTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   const canDelete = isUserAdmin || (
     item.refUser?.id === currentUserId &&
     (!item.etatTraitementDocument || item.etatTraitementDocument === "En attente")
   );
 
-  const handleDelClick = async (e: React.MouseEvent) => {
+  const handleConfirmDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirmDel) {
-      setConfirmDel(true);
-      confirmTimeout.current = setTimeout(() => setConfirmDel(false), 3000);
-      return;
-    }
-    clearTimeout(confirmTimeout.current);
     setDeleting(true);
     try { await onDelete(item.id); }
     finally { setDeleting(false); setConfirmDel(false); }
@@ -88,7 +81,7 @@ function DocCard({ doc: item, userName, onEdit, onDelete, currentUserId, isUserA
 
   return (
     <div className="card overflow-hidden">
-      <div className="px-4 py-3 cursor-pointer hover:bg-primary-bg/50" onClick={() => setOpen(!open)}>
+      <div className="px-4 py-3 cursor-pointer hover:bg-primary-bg/50" onClick={() => !confirmDel && setOpen(!open)}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><FileText size={16} className="text-primary" /></div>
@@ -107,22 +100,36 @@ function DocCard({ doc: item, userName, onEdit, onDelete, currentUserId, isUserA
             <EtatBadge etat={item.etatTraitementDocument} />
             <button onClick={e => { e.stopPropagation(); onEdit(); }} className="p-1.5 rounded-lg text-secondary-text hover:text-primary hover:bg-primary/10"><Pencil size={13} /></button>
             {canDelete && (
-              <button onClick={handleDelClick} disabled={deleting}
-                title={confirmDel ? "Cliquer à nouveau pour confirmer" : "Supprimer"}
-                className={cn("p-1.5 rounded-lg transition-colors",
-                  confirmDel ? "text-white bg-error rounded-lg" : "text-secondary-text hover:text-error hover:bg-red-50")}>
-                {deleting ? <Spinner size="sm" /> : <Trash2 size={13} />}
+              <button onClick={e => { e.stopPropagation(); setConfirmDel(true); }}
+                className="p-1.5 rounded-lg text-secondary-text hover:text-error hover:bg-red-50 transition-colors">
+                <Trash2 size={13} />
               </button>
             )}
             {open ? <ChevronUp size={14} className="text-secondary-text" /> : <ChevronDown size={14} className="text-secondary-text" />}
           </div>
         </div>
       </div>
+      {confirmDel && (
+        <div className="px-4 py-3 border-t border-red-200 bg-red-50 flex items-center gap-3 flex-wrap">
+          <p className="text-sm font-semibold text-red-700 flex items-center gap-2 flex-1">
+            <Trash2 size={14} />Supprimer ce document ?
+          </p>
+          <button onClick={e => { e.stopPropagation(); setConfirmDel(false); }}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-secondary-text hover:bg-gray-50 transition-colors">
+            Annuler
+          </button>
+          <button onClick={handleConfirmDelete} disabled={deleting}
+            className="text-xs px-3 py-1.5 rounded-lg bg-error text-white font-semibold hover:bg-red-700 transition-colors flex items-center gap-1.5 disabled:opacity-60">
+            {deleting ? <Spinner size="sm" /> : <Trash2 size={11} />}
+            {deleting ? "Suppression…" : "Supprimer définitivement"}
+          </button>
+        </div>
+      )}
       {open && (
         <div className="border-t border-alternate px-4 py-3 bg-primary-bg/40 space-y-2">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
             {item.debutSemaine && <div><p className="text-secondary-text">Semaine du</p><p className="font-medium">{formatDate(item.debutSemaine)} → {formatDate(item.finSemaine)}</p></div>}
-            {item.nbJours !== undefined && item.nbJours !== null && <div><p className="text-secondary-text">Nb jours</p><p className="font-medium">{item.nbJours}</p></div>}
+            {item.categorieDocument !== "Fiche d'heures" && item.nbJours !== undefined && item.nbJours !== null && <div><p className="text-secondary-text">Nb jours</p><p className="font-medium">{item.nbJours}</p></div>}
             {item.typeAbsence && <div><p className="text-secondary-text">Type absence</p><p className="font-medium">{item.typeAbsence}</p></div>}
             {item.estimationsMateriaux && <div><p className="text-secondary-text">Estim. matériaux</p><p className="font-medium">{item.estimationsMateriaux}</p></div>}
             {item.estimationsHeures && <div><p className="text-secondary-text">Estim. heures</p><p className="font-medium">{item.estimationsHeures}</p></div>}
@@ -130,19 +137,15 @@ function DocCard({ doc: item, userName, onEdit, onDelete, currentUserId, isUserA
           </div>
           {item.observations && <p className="text-xs text-secondary-text bg-secondary-bg rounded-lg px-3 py-2">{item.observations}</p>}
           <div className="flex flex-wrap gap-2">
-            {[["Salarié", item.signatureUser], ["Chef d'équipe", item.signatureChefEquipe], ["Responsable", item.signatureResponsable]].map(([label, sig]) => (
+            {(item.categorieDocument === "Demande autorisation absence"
+              ? [["Salarié", item.signatureUser], ["Responsable", item.signatureResponsable]]
+              : [["Salarié", item.signatureUser], ["Chef d'équipe", item.signatureChefEquipe], ["Responsable", item.signatureResponsable]]
+            ).map(([label, sig]) => (
               <div key={label} className={cn("flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg", sig ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>
                 <CheckCircle2 size={11} />{label} {sig ? "✓" : "—"}
               </div>
             ))}
           </div>
-          {confirmDel && !deleting && (
-            <div className="flex items-center gap-2 pt-2 border-t border-red-200">
-              <p className="text-xs text-error flex-1 font-medium">Confirmer la suppression ?</p>
-              <button onClick={e => { e.stopPropagation(); clearTimeout(confirmTimeout.current); setConfirmDel(false); }}
-                className="text-xs px-2 py-1 rounded-lg border border-alternate text-secondary-text hover:bg-alternate">Annuler</button>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -154,6 +157,7 @@ export default function FeuillesHeuresPage() {
   const { firebaseUser, userApp } = useAuthStore();
   const [rawDocs, setRawDocs] = useState<DocFH[]>([]);
   const [sentDocs, setSentDocs] = useState<DocFH[]>([]);
+  const [chefDocs, setChefDocs] = useState<DocFH[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filtreCategorie, setFiltreCategorie] = useState<string | null>(null);
@@ -161,11 +165,12 @@ export default function FeuillesHeuresPage() {
   const [userNames, setUserNames] = useState<Map<string, string>>(new Map());
 
   const docs = useMemo(() => {
-    if (!sentDocs.length) return rawDocs;
     const seen = new Set(rawDocs.map(d => d.id));
-    const extra = sentDocs.filter(d => !seen.has(d.id));
-    return [...rawDocs, ...extra].sort((a, b) => (b.dateCreate?.getTime() ?? 0) - (a.dateCreate?.getTime() ?? 0));
-  }, [rawDocs, sentDocs]);
+    const extra1 = sentDocs.filter(d => !seen.has(d.id));
+    extra1.forEach(d => seen.add(d.id));
+    const extra2 = chefDocs.filter(d => !seen.has(d.id));
+    return [...rawDocs, ...extra1, ...extra2].sort((a, b) => (b.dateCreate?.getTime() ?? 0) - (a.dateCreate?.getTime() ?? 0));
+  }, [rawDocs, sentDocs, chefDocs]);
 
   useEffect(() => {
     if (!firebaseUser) return;
@@ -202,10 +207,13 @@ export default function FeuillesHeuresPage() {
 
     const q = isAdmin(userApp)
       ? query(collection(db, "Documents_fh"), orderBy("date_create", "desc"))
-      : query(collection(db, "Documents_fh"), where("ref_user", "==", userRef), orderBy("date_create", "desc"));
+      : query(collection(db, "Documents_fh"), where("ref_user", "==", userRef));
 
     const unsub1 = onSnapshot(q, snap => {
       setRawDocs(snap.docs.map(mapDoc));
+      setLoading(false);
+    }, (err) => {
+      console.warn("Documents_fh inaccessible :", err);
       setLoading(false);
     });
 
@@ -213,18 +221,30 @@ export default function FeuillesHeuresPage() {
     let unsub2: (() => void) | undefined;
     if (!isAdmin(userApp) && isCompta) {
       const q2 = query(collection(db, "Documents_fh"), where("etat_envoi", "==", "Envoyé"));
-      unsub2 = onSnapshot(q2, snap => setSentDocs(snap.docs.map(mapDoc)));
+      unsub2 = onSnapshot(q2, snap => setSentDocs(snap.docs.map(mapDoc)), () => {});
     } else {
       setSentDocs([]);
     }
 
-    getDocs(collection(db, "usersapp")).then(snap => {
-      const m = new Map<string, string>();
-      snap.docs.forEach(d => m.set(d.id, (d.data().display_name as string) ?? `${d.data().prenom} ${d.data().nom}`));
-      setUserNames(m);
-    });
+    // Chef d'équipe voit les documents où il est désigné
+    let unsub3: (() => void) | undefined;
+    if (!isAdmin(userApp)) {
+      const q3 = query(collection(db, "Documents_fh"), where("ref_chef_equipe", "==", userRef));
+      unsub3 = onSnapshot(q3, snap => setChefDocs(snap.docs.map(mapDoc)), () => setChefDocs([]));
+    } else {
+      setChefDocs([]);
+    }
 
-    return () => { unsub1(); unsub2?.(); };
+    // Noms des utilisateurs : uniquement pour admin/chefs (lambdas voient uniquement leurs docs)
+    if (canCreateForOthers(userApp)) {
+      getDocs(collection(db, "usersapp")).then(snap => {
+        const m = new Map<string, string>();
+        snap.docs.forEach(d => m.set(d.id, (d.data().display_name as string) ?? `${d.data().prenom} ${d.data().nom}`));
+        setUserNames(m);
+      }).catch(() => {});
+    }
+
+    return () => { unsub1(); unsub2?.(); unsub3?.(); };
   }, [firebaseUser, userApp]);
 
   const filtered = useMemo(() => docs.filter(d => {
@@ -270,7 +290,9 @@ export default function FeuillesHeuresPage() {
             <p className="text-xs text-secondary-text mb-1.5">Type de document</p>
             <div className="flex flex-wrap gap-1.5">
               <FilterChip label="Tous" active={!filtreCategorie} onClick={() => setFiltreCategorie(null)} />
-              {CATS.map(c => <FilterChip key={c} label={c === "Demande autorisation absence" ? "Absence" : c === "Fiche de retour Travaux imprévus" ? "Travaux imprévus" : "Fiche d'heures"} active={filtreCategorie === c} onClick={() => setFiltreCategorie(filtreCategorie === c ? null : c)} />)}
+              {CATS.map(c => <FilterChip key={c}
+                label={c === "Demande autorisation absence" ? "Absence" : c === "Fiche de retour Travaux imprévus" ? "Travaux imprévus" : c === "Forfait Jour" ? "Forfait Jour" : "Fiche d'heures"}
+                active={filtreCategorie === c} onClick={() => setFiltreCategorie(filtreCategorie === c ? null : c)} />)}
             </div>
           </div>
           <div>

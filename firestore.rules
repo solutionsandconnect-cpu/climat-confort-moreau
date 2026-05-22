@@ -17,6 +17,12 @@ service cloud.firestore {
     match /Documents_fh/{document} {
       allow create, read, write, delete: if true;
     }
+    match /Documents_fh/{parent}/historique_fh/{document} {
+      allow create, read, write, delete: if true;
+    }
+    match /{path=**}/historique_fh/{document} {
+      allow read: if true;
+    }
     match /Documents_fh/{parent}/details_fh_plomberie/{document} {
       allow create, read, write, delete: if true;
     }

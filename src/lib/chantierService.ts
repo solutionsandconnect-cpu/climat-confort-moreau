@@ -91,15 +91,23 @@ export async function deleteChantier(
   chantierId: string
 ): Promise<{ ok: boolean; reason?: string }> {
   const opRef = doc(db, "Operation", chantierId);
-  const [batsSnap, logsSnap] = await Promise.all([
-    getDocs(query(collection(db, "Batiment"), where("ref_operation", "==", opRef))),
-    getDocs(query(collection(db, "Logements"), where("operation_ref", "==", opRef))),
-  ]);
-  if (!batsSnap.empty || !logsSnap.empty) {
-    return {
-      ok: false,
-      reason: `Ce chantier contient ${batsSnap.size} bâtiment(s) et ${logsSnap.size} logement(s). Supprimez-les d'abord.`,
-    };
+  // Cascade: bâtiments → logements → plannings
+  const batsSnap = await getDocs(query(collection(db, "Batiment"), where("ref_operation", "==", opRef)));
+  for (const batDoc of batsSnap.docs) {
+    const logsSnap = await getDocs(query(collection(db, "Logements"), where("batiment_ref", "==", batDoc.ref)));
+    for (const logDoc of logsSnap.docs) {
+      const planSnap = await getDocs(query(collection(db, "Planning"), where("ref_logement", "==", logDoc.ref)));
+      await Promise.all(planSnap.docs.map(d => deleteDoc(d.ref)));
+      await deleteDoc(logDoc.ref);
+    }
+    await deleteDoc(batDoc.ref);
+  }
+  // Logements directement liés à l'opération (sans bâtiment)
+  const looseSnap = await getDocs(query(collection(db, "Logements"), where("operation_ref", "==", opRef)));
+  for (const logDoc of looseSnap.docs) {
+    const planSnap = await getDocs(query(collection(db, "Planning"), where("ref_logement", "==", logDoc.ref)));
+    await Promise.all(planSnap.docs.map(d => deleteDoc(d.ref)));
+    await deleteDoc(logDoc.ref);
   }
   await deleteDoc(opRef);
   return { ok: true };
@@ -109,18 +117,15 @@ export async function deleteBatiment(
   batimentId: string,
   operationId: string
 ): Promise<{ ok: boolean; reason?: string }> {
-  // Vérifier s'il y a des logements liés
   const batRef = doc(db, "Batiment", batimentId);
-  const logsSnap = await getDocs(
-    query(collection(db, "Logements"), where("batiment_ref", "==", batRef))
-  );
-  if (!logsSnap.empty) {
-    return {
-      ok: false,
-      reason: `Ce bâtiment contient ${logsSnap.size} logement(s). Supprimez-les d'abord.`,
-    };
+  // Cascade: logements → plannings
+  const logsSnap = await getDocs(query(collection(db, "Logements"), where("batiment_ref", "==", batRef)));
+  for (const logDoc of logsSnap.docs) {
+    const planSnap = await getDocs(query(collection(db, "Planning"), where("ref_logement", "==", logDoc.ref)));
+    await Promise.all(planSnap.docs.map(d => deleteDoc(d.ref)));
+    await deleteDoc(logDoc.ref);
   }
-  await deleteDoc(doc(db, "Batiment", batimentId));
+  await deleteDoc(batRef);
   return { ok: true };
 }
 
@@ -128,7 +133,8 @@ function mapBatiment(id: string, data: Record<string, unknown>): Batiment {
   return {
     id,
     nomBatiment: data.nom_batiment as string | undefined,
-    adresse: ((data.adresse_batiment ?? data.adresse) as string) || undefined,
+    // Prefer rue_batiment (street only) to avoid duplicating cp+ville that adresse_batiment embeds
+    adresse: ((data.rue_batiment ?? data.adresse_batiment ?? data.adresse) as string) || undefined,
     codePostal: ((data.code_postale_batiment ?? data.code_postal) as string) || undefined,
     ville: ((data.ville_batiment ?? data.ville) as string) || undefined,
     operationRef: (data.ref_operation ?? data.operation_ref) as DocumentReference | undefined,

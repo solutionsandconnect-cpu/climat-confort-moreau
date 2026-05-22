@@ -1,5 +1,5 @@
 // src/lib/notifMessagerieService.ts
-// Services Firestore pour Notifications et Messagerie
+// Services Firestore pour Notifications et Messagerie (groupes inclus)
 
 import {
   collection,
@@ -16,6 +16,8 @@ import {
   Timestamp,
   DocumentReference,
   limit,
+  arrayRemove,
+  arrayUnion,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { firestoreTimestampToDate } from "./firestore";
@@ -34,7 +36,6 @@ export interface NotificationItem {
   dateDeclenchement?: Date;
   allerVersPage?: string;
   refUsers?: DocumentReference;
-  // Workflow relance
   planningId?: string;
   workflowAction?: "relance_appel" | "relance_mail_manuel" | "relance_mail_auto";
 }
@@ -94,24 +95,11 @@ export async function marquerNotificationLue(id: string): Promise<void> {
   });
 }
 
-export async function marquerToutesLues(
-  userRef: DocumentReference
-): Promise<void> {
+export async function marquerToutesLues(userRef: DocumentReference): Promise<void> {
   const snap = await getDocs(
-    query(
-      collection(db, "Notifications"),
-      where("refUsers", "==", userRef),
-      where("etat_notification", "==", "Non lue")
-    )
+    query(collection(db, "Notifications"), where("refUsers", "==", userRef), where("etat_notification", "==", "Non lue"))
   );
-  await Promise.all(
-    snap.docs.map((d) =>
-      updateDoc(d.ref, {
-        etat_notification: "Lue",
-        date_lecture: serverTimestamp(),
-      })
-    )
-  );
+  await Promise.all(snap.docs.map((d) => updateDoc(d.ref, { etat_notification: "Lue", date_lecture: serverTimestamp() })));
 }
 
 function mapNotif(id: string, data: Record<string, unknown>): NotificationItem {
@@ -131,22 +119,37 @@ function mapNotif(id: string, data: Record<string, unknown>): NotificationItem {
 }
 
 // ============================================
-// MESSAGERIE (discussions)
+// MESSAGERIE — Interfaces
 // ============================================
 
 export interface Discussion {
   id: string;
   objetMessage?: string;
-  serviceInterlocuteur?: string;
+  // Service: nouveau champ unifié (remplace serviceInterlocuteur)
+  service?: string;
+  serviceInterlocuteur?: string;  // backward compat
+  // Type de discussion
+  typeDiscussion?: "document" | "direct";
+  // Lien document
+  refDocumentFhId?: string;
+  etatDocument?: string;
+  // Dates
   dateCreate?: Date;
   dateLastMessage?: Date;
+  // Nouveau format groupes
+  participantsIds?: string[];
+  nonLusIds?: string[];
+  archivesPar?: string[];
+  // Ancien format 1-à-1 (backward compat)
   userCreate?: DocumentReference;
   userDestinataire?: DocumentReference;
-  etatMessageDestinataire?: boolean; // false = non lu
+  etatMessageDestinataire?: boolean;
   etatMessageExpediteur?: boolean;
-  // Résolus côté client
-  nomExpediteur?: string;
-  nomDestinataire?: string;
+  archiveExpediteur?: boolean;
+  archiveDestinataire?: boolean;
+  // Résolu côté client
+  nomInterlocuteur?: string;
+  photoUrl?: string;
 }
 
 export interface Message {
@@ -157,53 +160,67 @@ export interface Message {
   documentPdfList?: string[];
   documentImageList?: string[];
   documentVideoList?: string[];
-  // Résolu côté client
   nomAuteur?: string;
   isCurrentUser?: boolean;
 }
 
+// ============================================
+// MESSAGERIE — Abonnements
+// ============================================
+
+/**
+ * Abonnement aux discussions — supporte l'ancien format 1-à-1 ET le nouveau format groupe.
+ * userId : Firestore usersapp doc ID du user courant (= userApp.id).
+ * userRef : DocumentReference vers usersapp/{userId}.
+ */
 export function subscribeDiscussions(
+  userId: string,
   userRef: DocumentReference,
   callback: (items: Discussion[]) => void
 ) {
-  // Firestore ne supporte pas OR natif facilement, on fait deux queries
-  const qCreate = query(
-    collection(db, "messagerie"),
-    where("user_create", "==", userRef),
-    orderBy("date_last_message", "desc")
-  );
-  const qDest = query(
-    collection(db, "messagerie"),
-    where("user_destinataire", "==", userRef),
-    orderBy("date_last_message", "desc")
-  );
-
   const map = new Map<string, Discussion>();
-  let unsubCreate: () => void;
-  let unsubDest: () => void;
+  let init1 = false, init2 = false, init3 = false;
 
   const notify = () => {
+    if (!init1 || !init2 || !init3) return;
     const all = Array.from(map.values()).sort(
-      (a, b) =>
-        (b.dateLastMessage?.getTime() ?? 0) -
-        (a.dateLastMessage?.getTime() ?? 0)
+      (a, b) => (b.dateLastMessage?.getTime() ?? b.dateCreate?.getTime() ?? 0)
+              - (a.dateLastMessage?.getTime() ?? a.dateCreate?.getTime() ?? 0)
     );
     callback(all);
   };
 
-  unsubCreate = onSnapshot(qCreate, (snap) => {
-    snap.docs.forEach((d) => map.set(d.id, mapDiscussion(d.id, d.data())));
-    notify();
-  });
-  unsubDest = onSnapshot(qDest, (snap) => {
-    snap.docs.forEach((d) => map.set(d.id, mapDiscussion(d.id, d.data())));
-    notify();
-  });
+  // Ancien format — créateur
+  const u1 = onSnapshot(
+    query(collection(db, "messagerie"), where("user_create", "==", userRef)),
+    snap => {
+      snap.docs.forEach(d => { if (!d.data().participants_ids) map.set(d.id, mapDiscussion(d.id, d.data())); });
+      init1 = true; notify();
+    },
+    () => { init1 = true; notify(); }
+  );
 
-  return () => {
-    unsubCreate();
-    unsubDest();
-  };
+  // Ancien format — destinataire
+  const u2 = onSnapshot(
+    query(collection(db, "messagerie"), where("user_destinataire", "==", userRef)),
+    snap => {
+      snap.docs.forEach(d => { if (!d.data().participants_ids) map.set(d.id, mapDiscussion(d.id, d.data())); });
+      init2 = true; notify();
+    },
+    () => { init2 = true; notify(); }
+  );
+
+  // Nouveau format — participant (groupe)
+  const u3 = onSnapshot(
+    query(collection(db, "messagerie"), where("participants_ids", "array-contains", userId)),
+    snap => {
+      snap.docs.forEach(d => map.set(d.id, mapDiscussion(d.id, d.data())));
+      init3 = true; notify();
+    },
+    () => { init3 = true; notify(); }
+  );
+
+  return () => { u1(); u2(); u3(); };
 }
 
 export function subscribeMessages(
@@ -216,52 +233,165 @@ export function subscribeMessages(
     orderBy("date_create", "asc")
   );
   return onSnapshot(q, (snap) => {
-    callback(
-      snap.docs.map((d) => ({
-        id: d.id,
-        refUser: d.data().ref_user as DocumentReference,
-        messageText: d.data().message_text as string,
-        dateCreate: firestoreTimestampToDate(d.data().date_create as Timestamp),
-        documentPdfList: d.data().document_pdf_list as string[] ?? [],
-        documentImageList: d.data().document_image_list as string[] ?? [],
-        documentVideoList: d.data().document_video_list as string[] ?? [],
-        isCurrentUser:
-          (d.data().ref_user as DocumentReference)?.id === currentUserRef.id,
-      }))
-    );
+    callback(snap.docs.map((d) => ({
+      id: d.id,
+      refUser: d.data().ref_user as DocumentReference,
+      messageText: d.data().message_text as string,
+      dateCreate: firestoreTimestampToDate(d.data().date_create as Timestamp),
+      documentPdfList: (d.data().document_pdf_list as string[]) ?? [],
+      documentImageList: (d.data().document_image_list as string[]) ?? [],
+      documentVideoList: (d.data().document_video_list as string[]) ?? [],
+      isCurrentUser: (d.data().ref_user as DocumentReference)?.id === currentUserRef.id,
+    })));
   });
 }
 
+// ============================================
+// MESSAGERIE — Actions
+// ============================================
+
+/**
+ * Envoie un message dans une discussion (supporte ancien et nouveau format).
+ */
 export async function sendMessage(
   discussionId: string,
-  userRef: DocumentReference,
+  senderRef: DocumentReference,
   text: string
 ): Promise<void> {
-  await addDoc(
-    collection(db, "messagerie", discussionId, "messages_messagerie"),
-    {
-      ref_user: userRef,
-      message_text: text,
-      date_create: serverTimestamp(),
-    }
-  );
-  // Mettre à jour la date du dernier message + marquer non lu pour destinataire
+  await addDoc(collection(db, "messagerie", discussionId, "messages_messagerie"), {
+    ref_user: senderRef,
+    message_text: text,
+    date_create: serverTimestamp(),
+  });
+
+  const discDoc = await getDoc(doc(db, "messagerie", discussionId));
+  if (!discDoc.exists()) return;
+  const data = discDoc.data();
+
+  if (data.participants_ids) {
+    // Nouveau format groupe : marquer non lu pour tous sauf l'expéditeur
+    const participantsIds = data.participants_ids as string[];
+    await updateDoc(doc(db, "messagerie", discussionId), {
+      date_last_message: serverTimestamp(),
+      non_lus_ids: participantsIds.filter(id => id !== senderRef.id),
+    });
+  } else {
+    // Ancien format 1-à-1
+    await updateDoc(doc(db, "messagerie", discussionId), {
+      date_last_message: serverTimestamp(),
+      etat_message_destinataire: false,
+    });
+  }
+}
+
+/**
+ * Marque une discussion comme lue pour un utilisateur (supporte les deux formats).
+ * userId : Firestore usersapp doc ID.
+ * isDestinataire : pour l'ancien format uniquement.
+ */
+export async function marquerLuParUser(
+  discussionId: string,
+  userId: string,
+  isDestinataire?: boolean
+): Promise<void> {
+  const discDoc = await getDoc(doc(db, "messagerie", discussionId));
+  if (!discDoc.exists()) return;
+
+  if (discDoc.data().participants_ids) {
+    await updateDoc(doc(db, "messagerie", discussionId), { non_lus_ids: arrayRemove(userId) });
+  } else {
+    const field = isDestinataire ? "etat_message_destinataire" : "etat_message_expediteur";
+    await updateDoc(doc(db, "messagerie", discussionId), { [field]: true }).catch(() => {});
+  }
+}
+
+/** @deprecated Utiliser marquerLuParUser */
+export async function marquerDiscussionLue(discussionId: string, isDestinataire: boolean): Promise<void> {
+  await marquerLuParUser(discussionId, "", isDestinataire);
+}
+
+/**
+ * Ajoute des participants à une discussion groupe existante (idempotent).
+ */
+export async function ajouterParticipants(
+  discussionId: string,
+  participantRefs: DocumentReference[]
+): Promise<void> {
+  if (participantRefs.length === 0) return;
+  const discDoc = await getDoc(doc(db, "messagerie", discussionId));
+  if (!discDoc.exists() || !discDoc.data().participants_ids) return;
+
+  const existingIds = discDoc.data().participants_ids as string[];
+  const newRefs = participantRefs.filter(r => !existingIds.includes(r.id));
+  if (newRefs.length === 0) return;
+
   await updateDoc(doc(db, "messagerie", discussionId), {
-    date_last_message: serverTimestamp(),
-    etat_message_destinataire: false,
+    participants_ids: arrayUnion(...newRefs.map(r => r.id)),
+    participants: arrayUnion(...newRefs),
   });
 }
 
-export async function marquerDiscussionLue(
-  discussionId: string,
-  isDestinataire: boolean
+/**
+ * Met à jour l'état du document lié dans toutes les discussions associées.
+ */
+export async function updateDiscussionEtatDocument(
+  docFhRef: DocumentReference,
+  etat: string
 ): Promise<void> {
-  const field = isDestinataire
-    ? "etat_message_destinataire"
-    : "etat_message_expediteur";
-  await updateDoc(doc(db, "messagerie", discussionId), { [field]: true });
+  const snap = await getDocs(query(collection(db, "messagerie"), where("ref_document_fh", "==", docFhRef)));
+  await Promise.all(snap.docs.map(d => updateDoc(d.ref, { etat_document: etat }).catch(() => {})));
 }
 
+// ============================================
+// MESSAGERIE — Création de discussions
+// ============================================
+
+/**
+ * Crée une discussion de groupe (nouveau format).
+ * participants : tous les participants, incluant le créateur.
+ */
+export async function creerDiscussionGroupe(
+  participants: DocumentReference[],
+  createurRef: DocumentReference,
+  objet: string,
+  service: string,
+  premierMessage: string,
+  refDocumentFh?: DocumentReference | null,
+  etatDocument?: string,
+): Promise<string> {
+  const participantsIds = participants.map(p => p.id);
+
+  const data: Record<string, unknown> = {
+    participants,
+    participants_ids: participantsIds,
+    createur: createurRef,
+    objet_message: objet,
+    service,
+    service_interlocuteur: service,
+    type_discussion: refDocumentFh ? "document" : "direct",
+    date_create: serverTimestamp(),
+    date_last_message: serverTimestamp(),
+    non_lus_ids: participantsIds.filter(id => id !== createurRef.id),
+    archives_par: [],
+  };
+  if (refDocumentFh) data.ref_document_fh = refDocumentFh;
+  if (etatDocument) data.etat_document = etatDocument;
+
+  const ref = await addDoc(collection(db, "messagerie"), data);
+
+  if (premierMessage.trim()) {
+    await addDoc(collection(db, "messagerie", ref.id, "messages_messagerie"), {
+      ref_user: createurRef,
+      message_text: premierMessage,
+      date_create: serverTimestamp(),
+    });
+  }
+  return ref.id;
+}
+
+/**
+ * Crée une discussion 1-à-1 (ancien format, utilisé pour les messages manuels).
+ */
 export async function creerDiscussion(
   userCreateRef: DocumentReference,
   userDestRef: DocumentReference,
@@ -295,21 +425,30 @@ export async function getUserNom(ref: DocumentReference): Promise<string> {
   }
 }
 
-function mapDiscussion(
-  id: string,
-  data: Record<string, unknown>
-): Discussion {
+// ============================================
+// MESSAGERIE — Mapping interne
+// ============================================
+
+function mapDiscussion(id: string, data: Record<string, unknown>): Discussion {
+  const refDocFh = data.ref_document_fh as DocumentReference | null | undefined;
   return {
     id,
     objetMessage: data.objet_message as string,
+    service: (data.service as string) || (data.service_interlocuteur as string),
     serviceInterlocuteur: data.service_interlocuteur as string,
+    typeDiscussion: data.type_discussion as "document" | "direct" | undefined,
+    etatDocument: data.etat_document as string | undefined,
+    refDocumentFhId: refDocFh?.id,
     dateCreate: firestoreTimestampToDate(data.date_create as Timestamp),
-    dateLastMessage: firestoreTimestampToDate(
-      data.date_last_message as Timestamp
-    ),
-    userCreate: data.user_create as DocumentReference,
-    userDestinataire: data.user_destinataire as DocumentReference,
-    etatMessageDestinataire: data.etat_message_destinataire as boolean,
-    etatMessageExpediteur: data.etat_message_expediteur as boolean,
+    dateLastMessage: firestoreTimestampToDate(data.date_last_message as Timestamp),
+    participantsIds: data.participants_ids as string[] | undefined,
+    nonLusIds: data.non_lus_ids as string[] | undefined,
+    archivesPar: data.archives_par as string[] | undefined,
+    userCreate: data.user_create as DocumentReference | undefined,
+    userDestinataire: data.user_destinataire as DocumentReference | undefined,
+    etatMessageDestinataire: data.etat_message_destinataire as boolean | undefined,
+    etatMessageExpediteur: data.etat_message_expediteur as boolean | undefined,
+    archiveExpediteur: data.archive_expediteur as boolean | undefined,
+    archiveDestinataire: data.archive_destinataire as boolean | undefined,
   };
 }

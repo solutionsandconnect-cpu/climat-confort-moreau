@@ -8,11 +8,19 @@ import { db } from "./firebase";
 const VAPID_KEY = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
 
 // Initialise le messaging Firebase en lazy (browser uniquement)
+// Retourne null si le navigateur ne supporte pas les Service Workers (iOS Safari, etc.)
 async function getFirebaseMessaging() {
   if (typeof window === "undefined") return null;
-  const { getMessaging, getToken, onMessage } = await import("firebase/messaging");
-  const { default: app } = await import("./firebase");
-  return { messaging: getMessaging(app), getToken, onMessage };
+  if (!("serviceWorker" in navigator)) return null;
+  try {
+    const { getMessaging, isSupported, getToken, onMessage } = await import("firebase/messaging");
+    const supported = await isSupported();
+    if (!supported) return null;
+    const { default: app } = await import("./firebase");
+    return { messaging: getMessaging(app), getToken, onMessage };
+  } catch {
+    return null;
+  }
 }
 
 // Enregistre le service worker FCM et retourne le token push

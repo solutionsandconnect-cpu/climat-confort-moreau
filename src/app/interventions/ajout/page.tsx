@@ -8,13 +8,13 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { doc, getDoc, DocumentReference, addDoc, collection, getDocs, getCountFromServer, query, orderBy, limit, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, DocumentReference, addDoc, collection, getDocs, getCountFromServer, query, orderBy, limit, serverTimestamp, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import { Spinner } from "@/components/ui";
 import { cn, formatDate } from "@/lib/utils";
-import { ArrowLeft, Check, Clock, FileText, Euro, AlertCircle } from "lucide-react";
+import { ArrowLeft, Check, Clock, FileText, Euro, AlertCircle, Calendar } from "lucide-react";
 import toast from "react-hot-toast";
 
 const TYPES_DEMANDE = ["Réserve", "GPA", "DO", "Demande direct"];
@@ -47,6 +47,7 @@ function AjoutInterventionPageContent() {
   const [mailFacturation, setMailFacturation] = useState("");
   const [infosFacturation, setInfosFacturation] = useState("");
   const [quitusRef, setQuitusRef] = useState("");
+  const [dateDemande, setDateDemande] = useState("");
   // Acteurs pour facturation
   const [acteursFacturation, setActeursFacturation] = useState<{id: string; nom: string; mail?: string; adresse?: string}[]>([]);
   const [acteurFacturationId, setActeurFacturationId] = useState("");
@@ -120,6 +121,7 @@ function AjoutInterventionPageContent() {
         create_par: doc(db, "usersapp", firebaseUser.uid),
       };
 
+      if (dateDemande) data.date_demande = Timestamp.fromDate(new Date(dateDemande));
       if (logementId) data.ref_logement = doc(db, "Logements", logementId);
       if (chantierId) data.ref_operation = doc(db, "Operation", chantierId);
       if (facturable === "Travaux facturables") {
@@ -211,6 +213,19 @@ function AjoutInterventionPageContent() {
               value={descriptif}
               onChange={e => setDescriptif(e.target.value)}
               placeholder="Décrivez les travaux à réaliser…"
+            />
+          </div>
+
+          {/* Date de demande */}
+          <div className="card p-4">
+            <label className="text-xs font-bold text-secondary-text uppercase tracking-wide block mb-2">
+              <Calendar size={13} className="inline mr-1.5" />Date de demande
+            </label>
+            <input
+              className="input-base"
+              type="date"
+              value={dateDemande}
+              onChange={e => setDateDemande(e.target.value)}
             />
           </div>
 

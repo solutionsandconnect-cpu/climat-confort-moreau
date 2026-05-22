@@ -25,6 +25,9 @@ export interface WorkflowRelance {
   notifPhase2Id?: string;
   notifPhase3Id?: string;
   notifPhase4Id?: string;
+  notePhase2?: string;
+  notePhase3?: string;
+  notePhase4?: string;
   dateArret?: Date;
   dateCreate?: Date;
 }
@@ -148,6 +151,9 @@ export function subscribeWorkflowByPlanning(
         notifPhase2Id: data.notif_phase2_id as string,
         notifPhase3Id: data.notif_phase3_id as string,
         notifPhase4Id: data.notif_phase4_id as string,
+        notePhase2: data.note_phase_2 as string,
+        notePhase3: data.note_phase_3 as string,
+        notePhase4: data.note_phase_4 as string,
         dateArret: firestoreTimestampToDate(data.date_arret as Timestamp),
         dateCreate: firestoreTimestampToDate(data.date_create as Timestamp),
       });

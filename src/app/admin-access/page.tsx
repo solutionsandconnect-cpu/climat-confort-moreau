@@ -20,6 +20,8 @@ function AdminAccessContent() {
 
     (async () => {
       try {
+        // Marquer la session comme impersonation pour ne pas mettre à jour last_login
+        sessionStorage.setItem("__impersonating", "1");
         const cred = await signInWithCustomToken(auth, token);
         const userApp = await getUserApp(cred.user.uid);
         useAuthStore.setState({ firebaseUser: cred.user, userApp, loading: false, error: null });

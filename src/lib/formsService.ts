@@ -155,6 +155,7 @@ export interface InterventionDetail {
   chantierNom?: string;
   chantierNum?: string;
   nbRelances?: number;
+  dateDemande?: Date;
 }
 
 export function subscribeIntervention(
@@ -197,6 +198,7 @@ export function subscribeIntervention(
       refOperation: d.ref_operation as DocumentReference,
       sousTraitant: d.sous_traitant_si_pas_tech as string,
       etatFacturation: d.etat_facturation as string,
+      dateDemande: firestoreTimestampToDate(d.date_demande as Timestamp),
     });
   });
 }

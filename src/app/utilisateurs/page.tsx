@@ -24,7 +24,7 @@ import {
 import toast from "react-hot-toast";
 
 const ROLES = ["Utilisateur", "Admin", "SuperAdmin"];
-const TYPES = ["Conducteur de Travaux", "Technicien", "Service SAV / Expertises", "Bureau Administratif", "Magasin", "Chiffrage"];
+const TYPES = ["Chef de chantier Plomberie", "Chef de chantier Electricité", "Technicien SAV", "Compagnon Plomberie", "Compagnon Electricité", "Conducteur de Travaux", "Service SAV / Expertises", "Bureau Etude", "Bureau Administratif"];
 const FORFAIT_OPTIONS = ["Forfait Jour", "Pas de forfait jour"];
 
 function RoleBadge({ role }: { role?: string }) {
@@ -128,6 +128,7 @@ function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user
             <div className="flex flex-wrap items-center gap-1.5 mt-1">
               <RoleBadge role={user.roleapp} />
               {user.type && <span className="badge bg-secondary/10 text-secondary-600 border-secondary/20 text-xs">{user.type}</span>}
+              {user.service && <span className="badge bg-primary/10 text-primary border-primary/20 text-xs">{user.service}</span>}
               {(user as any).acesForfaitJour === "Forfait Jour" && <span className="badge bg-tertiary/10 text-tertiary border-tertiary/20 text-xs">Forfait Jour</span>}
               {!user.actif && <span className="badge bg-red-100 text-red-700 border-red-200 text-xs">Inactif</span>}
             </div>
@@ -173,7 +174,6 @@ function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user
 
       {expanded && !editMode && !confirmDelete && (
         <div className="border-t border-alternate px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-          {user.service && <div><p className="text-secondary-text">Service</p><p className="font-medium">{user.service}</p></div>}
           {user.phoneNumber && <div><p className="text-secondary-text">Téléphone{user.phoneType ? ` (${user.phoneType})` : ""}</p><a href={`tel:${user.phoneNumber}`} className="font-medium text-primary">{user.phoneNumber}</a></div>}
           {user.lastLogin && <div><p className="text-secondary-text">Dernière connexion</p><p className="font-medium">{formatDateRelative(user.lastLogin)}</p></div>}
           {user.createdTime && <div><p className="text-secondary-text">Compte créé le</p><p className="font-medium">{formatDate(user.createdTime)}</p></div>}
@@ -376,7 +376,7 @@ export default function UtilisateursPage() {
               user={u}
               canEdit={isAdmin(userApp)}
               canToggle={isAdmin(userApp)}
-              canImpersonate={isAdmin(userApp) && u.roleapp !== "Admin" && u.roleapp !== "SuperAdmin" && u.id !== userApp?.id}
+              canImpersonate={isAdmin(userApp) && u.roleapp !== "Admin" && u.id !== userApp?.id}
               onDelete={() => {}}
             />
           ))}</div>
