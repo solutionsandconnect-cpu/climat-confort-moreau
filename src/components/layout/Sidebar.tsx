@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Home, Users, UsersRound, FileText,
   BookOpen, MessageCircle, Bell, LogOut, ChevronDown, CalendarPlus,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 
 interface NavItem {
@@ -52,6 +52,11 @@ export function Sidebar() {
     if (item.visible && !item.visible(userApp)) return false;
     return true;
   });
+
+  useEffect(() => {
+    filteredItems.forEach(item => router.prefetch(item.href));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <aside className="hidden lg:flex flex-col w-[270px] h-screen bg-primary-bg border-r border-alternate shadow-sidebar shrink-0 sticky top-0">

@@ -138,6 +138,8 @@ export interface InterventionDetail {
   prenomClientSignature?: string;
   signatureClient?: string;
   signatureTechnicien?: string;
+  heureArrivee?: string;
+  heureDepart?: string;
   dateSignatureClient?: Date;
   dateSignatureTechnicien?: Date;
   quitusPdf?: string;
@@ -188,6 +190,8 @@ export function subscribeIntervention(
       prenomClientSignature: d.prenomClientSignature as string,
       signatureClient: d.signatureClient as string,
       signatureTechnicien: d.signature_technicien as string,
+      heureArrivee: d.heure_arrivee_tech as string | undefined,
+      heureDepart: d.heure_depart_tech as string | undefined,
       dateSignatureClient: firestoreTimestampToDate(d.date_signature_client as Timestamp),
       dateSignatureTechnicien: firestoreTimestampToDate(d.date_signature_technicien as Timestamp),
       quitusPdf: d.quitus_pdf as string,

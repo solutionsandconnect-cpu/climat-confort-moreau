@@ -5,65 +5,48 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
 
-// Récupère la config Firebase depuis l'API (injectée au premier install)
-let firebaseInitialized = false;
-
-async function initFirebase() {
-  if (firebaseInitialized) return;
-  try {
-    const res = await fetch('/api/sw-config');
-    const config = await res.json();
-    firebase.initializeApp(config);
-    firebaseInitialized = true;
-  } catch {
-    // Fallback config si l'API est inaccessible (offline)
-    firebase.initializeApp({
-      apiKey: "AIzaSyD8hZrqoL4kYelLQ8OpJbp-xgJ0TefsfEk",
-      authDomain: "test-app-ted-4krhhv.firebaseapp.com",
-      projectId: "test-app-ted-4krhhv",
-      storageBucket: "test-app-ted-4krhhv.firebasestorage.app",
-      messagingSenderId: "906424403366",
-      appId: "1:906424403366:web:992c4fa52e3a51910d7b67",
-    });
-    firebaseInitialized = true;
-  }
+// Initialisation synchrone — pas de fetch async, évite les problèmes de timing iOS
+if (!firebase.apps.length) {
+  firebase.initializeApp({
+    apiKey: "AIzaSyD8hZrqoL4kYelLQ8OpJbp-xgJ0TefsfEk",
+    authDomain: "test-app-ted-4krhhv.firebaseapp.com",
+    projectId: "test-app-ted-4krhhv",
+    storageBucket: "test-app-ted-4krhhv.firebasestorage.app",
+    messagingSenderId: "906424403366",
+    appId: "1:906424403366:web:992c4fa52e3a51910d7b67",
+  });
 }
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(initFirebase());
+const messaging = firebase.messaging();
+
+// Message reçu quand l'app est fermée ou en arrière-plan
+messaging.onBackgroundMessage((payload) => {
+  const title = payload.notification?.title || 'Notification CCM';
+  const body = payload.notification?.body || '';
+  const link = payload.data?.link || '/notifications';
+
+  return self.registration.showNotification(title, {
+    body,
+    icon: '/logo-ccm.jpg',
+    badge: '/logo-ccm.jpg',
+    tag: payload.data?.notifId || 'ccm-notif',
+    renotify: true,
+    data: { link },
+    vibrate: [200, 100, 200],
+    actions: [
+      { action: 'open', title: 'Ouvrir' },
+      { action: 'dismiss', title: 'Ignorer' },
+    ],
+  });
+});
+
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
-
-// Initialisation au démarrage du SW
-initFirebase().then(() => {
-  if (!firebase.apps.length) return;
-  const messaging = firebase.messaging();
-
-  // Message reçu quand l'app est fermée ou en arrière-plan
-  messaging.onBackgroundMessage((payload) => {
-    const title = payload.notification?.title || 'Notification CCM';
-    const body = payload.notification?.body || '';
-    const link = payload.data?.link || '/notifications';
-
-    return self.registration.showNotification(title, {
-      body,
-      icon: '/logo-ccm.jpg',
-      badge: '/logo-ccm.jpg',
-      tag: payload.data?.notifId || 'ccm-notif',
-      renotify: true,
-      data: { link },
-      vibrate: [200, 100, 200],
-      actions: [
-        { action: 'open', title: 'Ouvrir' },
-        { action: 'dismiss', title: 'Ignorer' },
-      ],
-    });
-  });
-}).catch(() => {});
 
 // Clic sur la notification → ouvrir ou focus l'onglet de l'app
 self.addEventListener('notificationclick', (event) => {

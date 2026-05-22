@@ -12,8 +12,9 @@ import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isSalarie } from "@/store/authStore";
 import { LISTE_SERVICES } from "@/types";
 import { Spinner } from "@/components/ui";
+import { AdresseSearch } from "@/components/ui/AdresseSearch";
 import { cn, formatDate, formatDateRelative, getInitials } from "@/lib/utils";
-import { Pencil, Check, X, Lock, User, Phone, Mail, Shield, Calendar, Eye, EyeOff, Camera, AlertTriangle } from "lucide-react";
+import { Pencil, Check, X, Lock, User, Phone, Mail, Shield, Calendar, Eye, EyeOff, Camera, AlertTriangle, MapPin } from "lucide-react";
 import toast from "react-hot-toast";
 
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
@@ -45,6 +46,9 @@ export default function ProfilPage() {
   const [editEmailType, setEditEmailType] = useState<"Pro" | "Perso">(userApp?.emailType ?? "Pro");
   const [editType, setEditType] = useState(userApp?.type ?? "");
   const [editService, setEditService] = useState(userApp?.service ?? "");
+  const [editAdresseDepart, setEditAdresseDepart] = useState(userApp?.adresseDepart ?? "");
+  const [editAdresseDepartLat, setEditAdresseDepartLat] = useState<number | null>(userApp?.adresseDepartLat ?? null);
+  const [editAdresseDepartLon, setEditAdresseDepartLon] = useState<number | null>(userApp?.adresseDepartLon ?? null);
 
   const [showServiceConfirm, setShowServiceConfirm] = useState(false);
 
@@ -65,6 +69,9 @@ export default function ProfilPage() {
       setEditEmailType(userApp.emailType ?? "Pro");
       setEditType(userApp.type ?? "");
       setEditService(userApp.service ?? "");
+      setEditAdresseDepart(userApp.adresseDepart ?? "");
+      setEditAdresseDepartLat(userApp.adresseDepartLat ?? null);
+      setEditAdresseDepartLon(userApp.adresseDepartLon ?? null);
     }
   }, [userApp]);
 
@@ -101,6 +108,9 @@ export default function ProfilPage() {
         email_type: editEmailType,
         type: editType,
         service_appartenance: editService,
+        adresse_depart: editAdresseDepart || null,
+        adresse_depart_lat: editAdresseDepartLat ?? null,
+        adresse_depart_lon: editAdresseDepartLon ?? null,
       });
       setEditMode(false);
       setShowServiceConfirm(false);
@@ -188,6 +198,7 @@ export default function ProfilPage() {
               <InfoRow icon={<User size={15} />} label="Nom" value={userApp.nom} />
               <InfoRow icon={<Phone size={15} />} label={`Téléphone${userApp.phoneType ? ` (${userApp.phoneType})` : ""}`} value={userApp.phoneNumber} />
               <InfoRow icon={<Mail size={15} />} label={`Email${userApp.emailType ? ` (${userApp.emailType})` : ""}`} value={userApp.email} />
+              <InfoRow icon={<MapPin size={15} />} label="Adresse de départ (domicile / dépôt)" value={userApp.adresseDepart} />
               {userApp.createdTime && <InfoRow icon={<Calendar size={15} />} label="Compte créé le" value={formatDate(userApp.createdTime)} />}
             </div>
           </div>
@@ -279,6 +290,17 @@ export default function ProfilPage() {
                   <button key={t} type="button" onClick={() => setEditEmailType(t)} className={cn("flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all", editEmailType === t ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text")}>{t}</button>
                 ))}
               </div>
+            </div>
+            <div>
+              <AdresseSearch
+                label="Adresse de départ (domicile / dépôt)"
+                value={editAdresseDepart}
+                onChange={v => { setEditAdresseDepart(v); setEditAdresseDepartLat(null); setEditAdresseDepartLon(null); }}
+                onSelect={v => setEditAdresseDepart(v)}
+                onSelectWithCoords={(label, lat, lon) => { setEditAdresseDepart(label); setEditAdresseDepartLat(lat); setEditAdresseDepartLon(lon); }}
+                placeholder="Ex: 12 rue de la Paix, 56000 Vannes"
+              />
+              <p className="text-[10px] text-secondary-text mt-1">Utilisée pour estimer le temps de trajet vers le 1er RDV de la journée.</p>
             </div>
             <div className="flex gap-2 pt-1">
               <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 flex-1">

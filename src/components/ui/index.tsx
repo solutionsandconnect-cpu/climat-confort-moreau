@@ -239,3 +239,4 @@ export function BadgePrioritaire({ prioritaire }: { prioritaire?: boolean }) {
 }
 
 export { NavButton } from './NavButton';
+export { MapInterventions } from './MapInterventions';

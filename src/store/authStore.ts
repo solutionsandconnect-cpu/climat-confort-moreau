@@ -21,6 +21,7 @@ interface AuthState {
   loading: boolean;
   initialized: boolean;
   error: string | null;
+  isImpersonating: boolean;
 
   // App state (équivalent FFAppState)
   pageActuelle: string;
@@ -46,6 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   loading: false,
   initialized: false,
   error: null,
+  isImpersonating: false,
 
   pageActuelle: "Accueil",
   notificationsNonLues: 0,
@@ -84,6 +86,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       firebaseUser: null,
       userApp: null,
       loading: false,
+      isImpersonating: false,
       pageActuelle: "Accueil",
       notificationsNonLues: 0,
       messagesNonLus: 0,

@@ -137,9 +137,13 @@ function DocCard({ doc: item, userName, onEdit, onDelete, currentUserId, isUserA
           </div>
           {item.observations && <p className="text-xs text-secondary-text bg-secondary-bg rounded-lg px-3 py-2">{item.observations}</p>}
           <div className="flex flex-wrap gap-2">
-            {(item.categorieDocument === "Demande autorisation absence"
-              ? [["Salarié", item.signatureUser], ["Responsable", item.signatureResponsable]]
-              : [["Salarié", item.signatureUser], ["Chef d'équipe", item.signatureChefEquipe], ["Responsable", item.signatureResponsable]]
+            {(item.categorieDocument === "Fiche de retour Travaux imprévus"
+              ? []
+              : item.categorieDocument === "Forfait Jour"
+                ? [["Salarié", item.signatureUser]]
+                : item.categorieDocument === "Demande autorisation absence"
+                  ? [["Salarié", item.signatureUser], ["Responsable", item.signatureResponsable]]
+                  : [["Salarié", item.signatureUser], ["Chef d'équipe", item.signatureChefEquipe], ["Responsable", item.signatureResponsable]]
             ).map(([label, sig]) => (
               <div key={label} className={cn("flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg", sig ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")}>
                 <CheckCircle2 size={11} />{label} {sig ? "✓" : "—"}
@@ -162,6 +166,13 @@ export default function FeuillesHeuresPage() {
   const [search, setSearch] = useState("");
   const [filtreCategorie, setFiltreCategorie] = useState<string | null>(null);
   const [filtreEtat, setFiltreEtat] = useState<string | null>(null);
+  const catsVisibles = useMemo(() => {
+    const SERVICES_FORFAIT = ["Comptabilité", "RH", "Bureau d'étude"];
+    const canForfait = isAdmin(userApp)
+      || userApp?.forfaitJour === "Forfait Jour"
+      || SERVICES_FORFAIT.includes(userApp?.service ?? "");
+    return canForfait ? CATS : CATS.filter(c => c !== "Forfait Jour");
+  }, [userApp]);
   const [userNames, setUserNames] = useState<Map<string, string>>(new Map());
 
   const docs = useMemo(() => {
@@ -290,7 +301,7 @@ export default function FeuillesHeuresPage() {
             <p className="text-xs text-secondary-text mb-1.5">Type de document</p>
             <div className="flex flex-wrap gap-1.5">
               <FilterChip label="Tous" active={!filtreCategorie} onClick={() => setFiltreCategorie(null)} />
-              {CATS.map(c => <FilterChip key={c}
+              {catsVisibles.map(c => <FilterChip key={c}
                 label={c === "Demande autorisation absence" ? "Absence" : c === "Fiche de retour Travaux imprévus" ? "Travaux imprévus" : c === "Forfait Jour" ? "Forfait Jour" : "Fiche d'heures"}
                 active={filtreCategorie === c} onClick={() => setFiltreCategorie(filtreCategorie === c ? null : c)} />)}
             </div>

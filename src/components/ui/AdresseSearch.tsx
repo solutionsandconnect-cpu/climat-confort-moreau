@@ -11,17 +11,19 @@ interface Suggestion {
   postcode?: string;
   city?: string;
   context?: string;
+  coords?: [number, number]; // [lon, lat] from GeoJSON
 }
 
 interface Props {
   value: string;
   onChange: (raw: string) => void;
   onSelect: (fullLabel: string) => void;
+  onSelectWithCoords?: (fullLabel: string, lat: number, lon: number) => void;
   placeholder?: string;
   label?: string;
 }
 
-export function AdresseSearch({ value, onChange, onSelect, placeholder = "Ex: 12 rue de la Paix, Vannes", label }: Props) {
+export function AdresseSearch({ value, onChange, onSelect, onSelectWithCoords, placeholder = "Ex: 12 rue de la Paix, Vannes", label }: Props) {
   const [query, setQuery] = useState(value);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -41,11 +43,12 @@ export function AdresseSearch({ value, onChange, onSelect, placeholder = "Ex: 12
       try {
         const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(query)}&limit=6&autocomplete=1`);
         const data = await res.json();
-        const results: Suggestion[] = (data.features ?? []).map((f: { properties: { label: string; postcode?: string; city?: string; context?: string } }) => ({
+        const results: Suggestion[] = (data.features ?? []).map((f: { properties: { label: string; postcode?: string; city?: string; context?: string }; geometry?: { coordinates?: [number, number] } }) => ({
           label: f.properties.label,
           postcode: f.properties.postcode,
           city: f.properties.city,
           context: f.properties.context,
+          coords: f.geometry?.coordinates,
         }));
         setSuggestions(results);
         setShow(results.length > 0);
@@ -62,6 +65,10 @@ export function AdresseSearch({ value, onChange, onSelect, placeholder = "Ex: 12
     setShow(false);
     onChange(s.label);
     onSelect(s.label);
+    if (onSelectWithCoords && s.coords) {
+      // GeoJSON: coordinates = [lon, lat]
+      onSelectWithCoords(s.label, s.coords[1], s.coords[0]);
+    }
   };
 
   return (

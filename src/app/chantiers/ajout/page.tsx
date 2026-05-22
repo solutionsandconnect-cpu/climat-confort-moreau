@@ -89,7 +89,7 @@ export default function AjoutChantierPage() {
               className="input-base mt-1.5"
               value={nomChantier}
               onChange={e => setNomChantier(e.target.value)}
-              placeholder="Ex: Résidence Les Pins"
+              placeholder="Ex: Villa Nova"
             />
           </div>
 
@@ -99,7 +99,7 @@ export default function AjoutChantierPage() {
               className="input-base mt-1.5 font-mono"
               value={numChantier}
               onChange={e => setNumChantier(e.target.value)}
-              placeholder="Ex: 2024-001"
+              placeholder="Ex: 0001"
             />
             <p className="text-xs text-secondary-text mt-1">Doit être unique — vérifié automatiquement</p>
           </div>

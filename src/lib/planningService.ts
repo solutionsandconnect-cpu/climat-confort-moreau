@@ -62,7 +62,7 @@ export function subscribePlanningByDate(
       descriptifTravaux: d.data().descriptif_travaux as string,
       affectationPlanning: d.data().affectation_planning as string,
       statutRdv: d.data().statut_rdv as string,
-      logementRef: d.data().logement_ref as DocumentReference | undefined,
+      logementRef: (d.data().ref_logement ?? d.data().logement_ref) as DocumentReference | undefined,
       operationRef: d.data().operation_ref as DocumentReference | undefined,
     }));
     callback(items);
@@ -72,8 +72,9 @@ export function subscribePlanningByDate(
 // Counts par jour sur une plage — pour les badges du calendrier
 export async function getPlanningCountsByRange(
   start: Date,
-  end: Date
-): Promise<Record<string, number>> {
+  end: Date,
+  userId?: string | null
+): Promise<{ counts: Record<string, number>; unassignedDates: Set<string> }> {
   const s = new Date(start); s.setHours(0, 0, 0, 0);
   const e = new Date(end); e.setHours(23, 59, 59, 999);
   const q = query(
@@ -83,14 +84,20 @@ export async function getPlanningCountsByRange(
   );
   const snap = await getDocs(q);
   const counts: Record<string, number> = {};
+  const unassignedDates = new Set<string>();
   snap.docs.forEach((d) => {
+    if (userId && (d.data().ref_users as DocumentReference | undefined)?.id !== userId) return;
     const dateVal = firestoreTimestampToDate(d.data().date_rdv as Timestamp);
     if (dateVal) {
       const key = format(dateVal, "yyyy-MM-dd");
       counts[key] = (counts[key] ?? 0) + 1;
+      // Signaler les interventions sans technicien ni sous-traitant (vue globale uniquement)
+      if (!userId && !d.data().ref_users && !d.data().sous_traitant_si_pas_tech) {
+        unassignedDates.add(key);
+      }
     }
   });
-  return counts;
+  return { counts, unassignedDates };
 }
 
 // Suppression d'un planning

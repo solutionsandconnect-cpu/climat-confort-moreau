@@ -144,7 +144,7 @@ function AjoutBatimentPageContent() {
                 <input className="input-base pr-9" value={adresseQuery}
                   onChange={e => setAdresseQuery(e.target.value)}
                   onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                  placeholder="Ex: 12 rue de la Paix, Vannes" />
+                  placeholder="Ex: 12 rue de la Paix, 44000 Nantes" />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                   {loadingSuggestions ? <Spinner size="sm" /> : <Search size={15} className="text-secondary-text" />}
                 </div>
@@ -175,11 +175,11 @@ function AjoutBatimentPageContent() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-secondary-text">Code postal</label>
-                <input className="input-base mt-1" value={cp} onChange={e => setCp(e.target.value)} placeholder="Ex: 56000" maxLength={5} />
+                <input className="input-base mt-1" value={cp} onChange={e => setCp(e.target.value)} placeholder="Ex: 44000" maxLength={5} />
               </div>
               <div>
                 <label className="text-xs font-medium text-secondary-text">Ville</label>
-                <input className="input-base mt-1" value={ville} onChange={e => setVille(e.target.value)} placeholder="Ex: Vannes" />
+                <input className="input-base mt-1" value={ville} onChange={e => setVille(e.target.value)} placeholder="Ex: Nantes" />
               </div>
             </div>
           </div>

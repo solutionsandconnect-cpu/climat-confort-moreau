@@ -970,7 +970,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
 
   const handleSave = async () => {
     if (!nom.trim() || !prenom.trim()) { toast.error("Nom et prénom obligatoires"); return; }
-    if (!isNew && etat === "Validé" && categorie !== "Fiche de retour Travaux imprévus") {
+    if (!isNew && etat === "Validé" && categorie !== "Fiche de retour Travaux imprévus" && !isAdmin(userApp)) {
       const manquantes: string[] = [];
       if (!sigUser) manquantes.push("signature salarié");
       if (chefEquipeId && !sigChef) manquantes.push("signature chef d'équipe");
@@ -1047,8 +1047,12 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
             const adminRef = doc(db, "usersapp", firebaseUser.uid) as DocumentReference;
             const docFhRef = doc(db, "Documents_fh", params.id);
             const existingSnap = await getDocs(query(collection(db, "messagerie"), where("ref_document_fh", "==", docFhRef)));
+            const msgText = `Le document "${buildNom()}" a été validé.`;
             if (!existingSnap.empty) {
-              await sendMessage(existingSnap.docs[0].id, adminRef, `Le document "${buildNom()}" a été validé.`);
+              await sendMessage(existingSnap.docs[0].id, adminRef, msgText);
+            } else if (selectedUserId && selectedUserId !== firebaseUser.uid) {
+              const salarieRef = doc(db, "usersapp", selectedUserId) as DocumentReference;
+              await creerDiscussionGroupe([adminRef, salarieRef], adminRef, buildNom(), "RH", msgText, docFhRef, "Validé");
             }
           } catch (e) { console.error("Erreur auto-message validation :", e); }
         }
@@ -1310,6 +1314,11 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   const admin = isAdmin(userApp);
   const chefOuAdmin = canCreateForOthers(userApp);
   const estSalarie = isSalarie(userApp);
+  const SERVICES_FORFAIT_ACCES = ["Comptabilité", "RH", "Bureau d'étude"];
+  const canAccessForfaitJour = admin
+    || userApp?.forfaitJour === "Forfait Jour"
+    || SERVICES_FORFAIT_ACCES.includes(userApp?.service ?? "");
+  const catsDisponibles = canAccessForfaitJour ? CATS : CATS.filter(c => c !== "Forfait Jour");
   // isCreator : vérifie contre l'UID Firebase ET l'ID Firestore. Pour les personnes externes, on vérifie create_par.
   const isCreator = isNew || selectedUserId === firebaseUser?.uid || selectedUserId === userApp?.id
     || (isExternal && (createParId === firebaseUser?.uid || createParId === userApp?.id));
@@ -1404,7 +1413,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
 
           {/* ── Type de document ── */}
           <div className="card p-4">
-            <Chips label="Type de document" value={categorie} options={CATS} onChange={setCategorie} disabled={!isNew} />
+            <Chips label="Type de document" value={categorie} options={catsDisponibles} onChange={setCategorie} disabled={!isNew} />
           </div>
 
           {/* ── Salarié concerné ── */}

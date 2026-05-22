@@ -2,14 +2,15 @@
 // Conditions Générales d'Utilisation — accessible publiquement (App Store / Play Store)
 
 export const metadata = {
-  title: "Conditions d'utilisation — Climat & Confort Moreau",
+  title: "Conditions d'utilisation application Climat & Confort Moreau — Solutions & Connect",
   description: "Conditions générales d'utilisation de l'application Climat & Confort Moreau",
 };
 
 export default function TermsPage() {
   const lastUpdate = "21 mai 2025";
   const company = "Climat & Confort Moreau";
-  const email = "contact@climatconfortmoreau.fr";
+  const developpeur = "Solutions & Connect";
+  const email = "solutionsandconnect@gmail.com";
 
   return (
     <div className="min-h-screen bg-white">
@@ -20,11 +21,12 @@ export default function TermsPage() {
         <Section title="1. Objet">
           <p>
             Les présentes Conditions Générales d'Utilisation (ci-après «&nbsp;CGU&nbsp;») régissent l'accès et l'utilisation de
-            l'application <strong>Climat &amp; Confort Moreau</strong> (ci-après «&nbsp;l'Application&nbsp;»), éditée par
-            <strong> {company}</strong> (ci-après «&nbsp;la Société&nbsp;»).
+            l'application <strong>Climat &amp; Confort Moreau</strong> (ci-après «&nbsp;l'Application&nbsp;»), éditée pour
+            <strong> {company}</strong> (ci-après «&nbsp;le Collaborateur&nbsp;»), développé par
+            <strong> {developpeur}</strong> (ci-après «&nbsp;la Société&nbsp;»).
           </p>
           <p className="mt-3">
-            L'Application est un outil de gestion interne destiné exclusivement aux collaborateurs de la Société. Elle permet
+            L'Application est un outil de gestion interne destiné exclusivement aux partenaires du Collaborateur. Elle permet
             la gestion des interventions, chantiers, logements, planning et communications internes.
           </p>
           <p className="mt-3">
@@ -44,7 +46,7 @@ export default function TermsPage() {
             <li>Se déconnecter de l'Application à l'issue de chaque session sur un appareil partagé.</li>
           </ul>
           <p className="mt-3">
-            La Société se réserve le droit de suspendre ou de désactiver tout compte en cas de violation des présentes CGU ou à la fin de la relation professionnelle avec le collaborateur.
+            La Société se réserve le droit de suspendre ou de désactiver tout compte en cas de violation des présentes CGU ou à la fin de la relation professionnelle avec le Collaborateur.
           </p>
         </Section>
 
@@ -53,7 +55,7 @@ export default function TermsPage() {
           <ul className="list-disc pl-6 mt-3 space-y-2">
             <li>Utiliser l'Application uniquement dans le cadre de ses fonctions au sein de {company}.</li>
             <li>Ne renseigner que des informations exactes et à jour.</li>
-            <li>Ne pas utiliser l'Application à des fins personnelles, illicites ou contraires aux intérêts de la Société.</li>
+            <li>Ne pas utiliser l'Application à des fins personnelles, illicites ou contraires aux intérêts de la Société et de {company}.</li>
             <li>Ne pas tenter d'accéder à des données auxquelles ses droits ne lui permettent pas d'accéder.</li>
             <li>Ne pas reproduire, modifier, distribuer ou exploiter tout ou partie de l'Application sans autorisation expresse de la Société.</li>
             <li>Respecter la confidentialité des données des occupants, clients et tiers auxquelles il accède dans le cadre de ses fonctions.</li>
@@ -101,7 +103,7 @@ export default function TermsPage() {
         <Section title="7. Propriété intellectuelle">
           <p>
             L'ensemble des éléments constituant l'Application (code source, interfaces, graphismes, logos, base de données)
-            sont la propriété exclusive de {company} ou de ses prestataires et sont protégés par le droit de la propriété intellectuelle.
+            sont la propriété exclusive de {developpeur} ou de ses prestataires et sont protégés par le droit de la propriété intellectuelle.
           </p>
           <p className="mt-3">
             Toute reproduction, représentation, modification ou exploitation non autorisée est strictement interdite et pourra
@@ -113,7 +115,7 @@ export default function TermsPage() {
           <p>
             Le traitement des données personnelles est décrit dans la{" "}
             <a href="/privacy" className="text-blue-600 underline">Politique de confidentialité</a>,
-            accessible depuis l'Application et le site web de la Société.
+            accessible depuis l'Application.
           </p>
         </Section>
 
@@ -129,20 +131,20 @@ export default function TermsPage() {
           <p>
             Les présentes CGU sont soumises au droit français. En cas de litige relatif à leur interprétation ou à leur exécution,
             les parties s'efforceront de trouver une solution amiable. À défaut, les tribunaux compétents du ressort du siège social
-            de {company} seront seuls compétents.
+            de {developpeur} seront seuls compétents.
           </p>
         </Section>
 
         <Section title="11. Contact">
           <p>Pour toute question relative aux présentes CGU&nbsp;:</p>
           <p className="mt-2">
-            <strong>{company}</strong><br />
+            <strong>{developpeur}</strong><br />
             Email&nbsp;: <a href={`mailto:${email}`} className="text-blue-600 underline">{email}</a>
           </p>
         </Section>
 
         <p className="mt-12 text-xs text-gray-400 text-center">
-          © {new Date().getFullYear()} {company} — Tous droits réservés
+          © {new Date().getFullYear()} {developpeur} — Tous droits réservés
         </p>
       </div>
     </div>

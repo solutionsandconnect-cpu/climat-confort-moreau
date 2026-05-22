@@ -66,6 +66,10 @@ export interface UserApp {
   phoneType?: "Pro" | "Perso";
   emailType?: "Pro" | "Perso";
   service?: Service;
+  forfaitJour?: string;
+  adresseDepart?: string;
+  adresseDepartLat?: number;
+  adresseDepartLon?: number;
 }
 
 // ============================================

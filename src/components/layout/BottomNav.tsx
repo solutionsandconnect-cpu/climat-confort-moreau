@@ -3,6 +3,7 @@
 // src/components/layout/BottomNav.tsx
 // Équivalent de nav_bar_tel_widget.dart
 
+import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore, canViewDashboard } from "@/store/authStore";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,11 @@ export function BottomNav() {
     { label: "Messages", icon: <MessageCircle size={20} />, href: "/messagerie", badge: messagesNonLus },
     { label: "Notifs", icon: <Bell size={20} />, href: "/notifications", badge: notificationsNonLues },
   ];
+
+  useEffect(() => {
+    items.forEach(item => router.prefetch(item.href));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-secondary-bg border-t border-alternate shadow-lg">

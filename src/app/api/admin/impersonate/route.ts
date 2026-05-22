@@ -1,3 +1,5 @@
+export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminDb } from "@/lib/firebaseAdmin";
 
@@ -33,7 +35,9 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ token: customToken });
-  } catch {
-    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[impersonate]", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

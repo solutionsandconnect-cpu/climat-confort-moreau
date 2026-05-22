@@ -97,6 +97,10 @@ function mapUserApp(id: string, data: Record<string, unknown>): UserApp {
     phoneType: data.phone_type as UserApp["phoneType"],
     emailType: data.email_type as UserApp["emailType"],
     service: (data.service_appartenance as UserApp["service"]) ?? data.service as UserApp["service"],
+    forfaitJour: data.forfait_jour as string | undefined,
+    adresseDepart: data.adresse_depart as string | undefined,
+    adresseDepartLat: data.adresse_depart_lat as number | undefined,
+    adresseDepartLon: data.adresse_depart_lon as number | undefined,
   };
 }
 

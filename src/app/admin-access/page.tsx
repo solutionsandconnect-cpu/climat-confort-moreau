@@ -20,14 +20,13 @@ function AdminAccessContent() {
 
     (async () => {
       try {
-        // Marquer la session comme impersonation pour ne pas mettre à jour last_login
-        sessionStorage.setItem("__impersonating", "1");
         const cred = await signInWithCustomToken(auth, token);
         const userApp = await getUserApp(cred.user.uid);
-        useAuthStore.setState({ firebaseUser: cred.user, userApp, loading: false, error: null });
+        useAuthStore.setState({ firebaseUser: cred.user, userApp, loading: false, error: null, isImpersonating: true });
         router.replace("/accueil");
-      } catch {
-        setError("Le lien est invalide ou a expiré (durée de vie : 1 heure).");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Échec de connexion (${msg}). Vérifiez que le lien est valide et non expiré.`);
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -6,7 +6,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { collection, query, where, onSnapshot, doc, getDocs, updateDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDocs, updateDoc, serverTimestamp, orderBy, limit } from "firebase/firestore";
 import type { DocumentReference } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthStore } from "@/store/authStore";
@@ -21,10 +21,11 @@ interface AppShellProps {
   children: React.ReactNode;
   className?: string;
   noPadBottom?: boolean;
+  hideNav?: boolean;
 }
 
-export function AppShell({ children, className, noPadBottom }: AppShellProps) {
-  const { firebaseUser, userApp, initialized, setMessagesNonLus, setNotificationsNonLues, setJournalInterneNonLu } = useAuthStore();
+export function AppShell({ children, className, noPadBottom, hideNav }: AppShellProps) {
+  const { firebaseUser, userApp, initialized, isImpersonating, setMessagesNonLus, setNotificationsNonLues, setJournalInterneNonLu } = useAuthStore();
   const router = useRouter();
 
   const msgDestCount = useRef(0);
@@ -67,16 +68,18 @@ export function AppShell({ children, className, noPadBottom }: AppShellProps) {
     if (!firebaseUser) return;
     const myService = userApp?.service;
     const myType = userApp?.type;
-    const unsub = onSnapshot(collection(db, "Journal_interne"), async snap => {
+    const userRef = doc(db, "usersapp", firebaseUser.uid);
+    const unsub = onSnapshot(query(collection(db, "Journal_interne"), orderBy("date_create", "desc"), limit(100)), async snap => {
       let count = 0;
       await Promise.all(snap.docs.map(async d => {
         const listeNomEnvoi = (d.data().liste_nom_envoi as string[]) ?? [];
         const isRecipient = listeNomEnvoi.some(s => s === myService || s === myType);
-        // Ne pas notifier le créateur si son service n'est pas destinataire
         if (!isRecipient) return;
-        const lectureSnap = await getDocs(collection(db, "Journal_interne", d.id, "lecture_document_journal_interne"));
-        const hasRead = lectureSnap.docs.some(l => (l.data().user_lu as DocumentReference)?.id === firebaseUser.uid);
-        if (!hasRead) count++;
+        const lectureSnap = await getDocs(query(
+          collection(db, "Journal_interne", d.id, "lecture_document_journal_interne"),
+          where("user_lu", "==", userRef), limit(1)
+        ));
+        if (lectureSnap.empty) count++;
       }));
       setJournalInterneNonLu(count);
     });
@@ -98,7 +101,7 @@ export function AppShell({ children, className, noPadBottom }: AppShellProps) {
   // Mise à jour last_login à chaque visite (sauf impersonation)
   useEffect(() => {
     if (!firebaseUser || !userApp) return;
-    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("__impersonating")) return;
+    if (isImpersonating) return;
     updateDoc(doc(db, "usersapp", userApp.id), { last_login: serverTimestamp() }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firebaseUser?.uid]);
@@ -141,7 +144,7 @@ export function AppShell({ children, className, noPadBottom }: AppShellProps) {
         className={cn(
           "flex-1 overflow-x-hidden",
           noPadBottom
-            ? "h-full overflow-hidden"
+            ? "flex flex-col overflow-hidden"
             : "min-h-screen pb-20 lg:pb-6",
           className
         )}
@@ -149,8 +152,8 @@ export function AppShell({ children, className, noPadBottom }: AppShellProps) {
         {children}
       </main>
 
-      {/* Bottom nav mobile */}
-      <BottomNav />
+      {/* Bottom nav mobile — masquée sur les pages plein-écran (chat, etc.) */}
+      {!hideNav && <BottomNav />}
     </div>
   );
 }

@@ -16,10 +16,11 @@ import {
 import type { UserApp } from "@/types";
 import { LISTE_SERVICES } from "@/types";
 import { EmptyState, LoadingPage, SearchInput, Spinner } from "@/components/ui";
+import { AdresseSearch } from "@/components/ui/AdresseSearch";
 import { cn, formatDate, formatDateRelative, getInitials } from "@/lib/utils";
 import {
   Users, Pencil, X, Check, Power, PowerOff, Plus, ChevronDown, ChevronUp,
-  Camera, Trash2, Shield, AlertTriangle, MonitorSmartphone,
+  Camera, Trash2, Shield, AlertTriangle, MonitorSmartphone, MapPin,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -64,6 +65,9 @@ function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user
   const [editRole, setEditRole] = useState<string>(user.roleapp ?? "Utilisateur");
   const [editService, setEditService] = useState(user.service ?? "");
   const [editForfait, setEditForfait] = useState((user as any).acesForfaitJour ?? "");
+  const [editAdresseDepart, setEditAdresseDepart] = useState(user.adresseDepart ?? "");
+  const [editAdresseDepartLat, setEditAdresseDepartLat] = useState<number | null>(user.adresseDepartLat ?? null);
+  const [editAdresseDepartLon, setEditAdresseDepartLon] = useState<number | null>(user.adresseDepartLon ?? null);
 
   const handlePhoto = async (file: File) => {
     setUploadingPhoto(true);
@@ -85,6 +89,9 @@ function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user
         acces_forfait_jour: editForfait,
         phone_type: editPhoneType,
         email_type: editEmailType,
+        adresse_depart: editAdresseDepart || null,
+        adresse_depart_lat: editAdresseDepartLat ?? null,
+        adresse_depart_lon: editAdresseDepartLon ?? null,
       });
       setEditMode(false);
       toast.success("Utilisateur mis à jour");
@@ -173,10 +180,21 @@ function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user
       )}
 
       {expanded && !editMode && !confirmDelete && (
-        <div className="border-t border-alternate px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-          {user.phoneNumber && <div><p className="text-secondary-text">Téléphone{user.phoneType ? ` (${user.phoneType})` : ""}</p><a href={`tel:${user.phoneNumber}`} className="font-medium text-primary">{user.phoneNumber}</a></div>}
-          {user.lastLogin && <div><p className="text-secondary-text">Dernière connexion</p><p className="font-medium">{formatDateRelative(user.lastLogin)}</p></div>}
-          {user.createdTime && <div><p className="text-secondary-text">Compte créé le</p><p className="font-medium">{formatDate(user.createdTime)}</p></div>}
+        <div className="border-t border-alternate px-4 py-3 space-y-2 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {user.phoneNumber && <div><p className="text-secondary-text">Téléphone{user.phoneType ? ` (${user.phoneType})` : ""}</p><a href={`tel:${user.phoneNumber}`} className="font-medium text-primary">{user.phoneNumber}</a></div>}
+            {user.lastLogin && <div><p className="text-secondary-text">Dernière connexion</p><p className="font-medium">{formatDateRelative(user.lastLogin)}</p></div>}
+            {user.createdTime && <div><p className="text-secondary-text">Compte créé le</p><p className="font-medium">{formatDate(user.createdTime)}</p></div>}
+          </div>
+          {user.adresseDepart && (
+            <div className="flex items-start gap-2 pt-1 border-t border-alternate/50">
+              <MapPin size={12} className="text-secondary-text mt-0.5 shrink-0" />
+              <div>
+                <p className="text-secondary-text">Adresse de départ</p>
+                <p className="font-medium text-primary-text">{user.adresseDepart}</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {expanded && editMode && !confirmDelete && (
@@ -213,6 +231,14 @@ function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user
               {FORFAIT_OPTIONS.map(o => <button key={o} type="button" onClick={() => setEditForfait(o)} className={cn("flex-1 py-2 rounded-lg text-xs font-semibold border transition-all", editForfait === o ? "bg-primary text-white border-primary" : "border-alternate text-secondary-text")}>{o}</button>)}
             </div>
           </div>
+          <AdresseSearch
+            label="Adresse de départ (domicile / dépôt)"
+            value={editAdresseDepart}
+            onChange={v => { setEditAdresseDepart(v); setEditAdresseDepartLat(null); setEditAdresseDepartLon(null); }}
+            onSelect={v => setEditAdresseDepart(v)}
+            onSelectWithCoords={(label, lat, lon) => { setEditAdresseDepart(label); setEditAdresseDepartLat(lat); setEditAdresseDepartLon(lon); }}
+            placeholder="Ex: 12 rue de la Paix, 56000 Vannes"
+          />
           <div className="flex gap-2">
             <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 flex-1">{saving ? <Spinner size="sm" /> : <Check size={14} />}Sauvegarder</button>
             <button onClick={() => setEditMode(false)} className="btn-outline px-4"><X size={14} /></button>

@@ -2,14 +2,15 @@
 // Politique de confidentialité — accessible publiquement (App Store / Play Store)
 
 export const metadata = {
-  title: "Politique de confidentialité — Climat & Confort Moreau",
+  title: "Politique de confidentialité application Climat & Confort Moreau — Solutions & Connect",
   description: "Politique de confidentialité de l'application Climat & Confort Moreau",
 };
 
 export default function PrivacyPage() {
   const lastUpdate = "21 mai 2025";
   const company = "Climat & Confort Moreau";
-  const email = "contact@climatconfortmoreau.fr";
+  const developpeur = "Solutions & Connect";
+  const email = "solutionsandconnect@gmail.com";
   const address = "France";
 
   return (
@@ -20,18 +21,18 @@ export default function PrivacyPage() {
 
         <Section title="1. Présentation">
           <p>
-            La présente politique de confidentialité décrit la manière dont <strong>{company}</strong> (ci-après «&nbsp;nous&nbsp;» ou «&nbsp;la Société&nbsp;»)
+            La présente politique de confidentialité décrit la manière dont <strong>{developpeur}</strong> (ci-après «&nbsp;nous&nbsp;» ou «&nbsp;la Société&nbsp;»)
             collecte, utilise et protège les données à caractère personnel des utilisateurs de l'application mobile et web
-            <strong> Climat &amp; Confort Moreau</strong> (ci-après «&nbsp;l'Application&nbsp;»).
+            <strong> {company}</strong> (ci-après «&nbsp;l'Application&nbsp;»).
           </p>
           <p className="mt-3">
-            L'Application est un outil de gestion interne réservé exclusivement aux collaborateurs de {company}.
+            L'Application est un outil de gestion interne réservé exclusivement aux collaborateurs de {developpeur} qui est lié à {company}.
             Elle n'est pas accessible au grand public. Toute connexion est soumise à la création d'un compte par un administrateur de la Société.
           </p>
         </Section>
 
         <Section title="2. Responsable du traitement">
-          <p><strong>{company}</strong><br />{address}<br />Email&nbsp;: <a href={`mailto:${email}`} className="text-blue-600 underline">{email}</a></p>
+          <p><strong>{developpeur}</strong><br />{address}<br />Email&nbsp;: <a href={`mailto:${email}`} className="text-blue-600 underline">{email}</a></p>
         </Section>
 
         <Section title="3. Données collectées">
@@ -142,11 +143,11 @@ export default function PrivacyPage() {
 
         <Section title="13. Contact">
           <p>Pour toute question relative à la présente politique ou au traitement de vos données&nbsp;:</p>
-          <p className="mt-2"><strong>{company}</strong><br />{address}<br />Email&nbsp;: <a href={`mailto:${email}`} className="text-blue-600 underline">{email}</a></p>
+          <p className="mt-2"><strong>{developpeur}</strong><br />{address}<br />Email&nbsp;: <a href={`mailto:${email}`} className="text-blue-600 underline">{email}</a></p>
         </Section>
 
         <p className="mt-12 text-xs text-gray-400 text-center">
-          © {new Date().getFullYear()} {company} — Tous droits réservés
+          © {new Date().getFullYear()} {developpeur} — Tous droits réservés
         </p>
       </div>
     </div>

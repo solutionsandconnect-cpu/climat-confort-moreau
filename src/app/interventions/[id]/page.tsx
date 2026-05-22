@@ -3,17 +3,20 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+const MapInterventions = dynamic(() => import("@/components/ui/MapInterventions").then(m => ({ default: m.MapInterventions })), { ssr: false, loading: () => null });
 import {
-  doc, updateDoc, Timestamp, DocumentReference, addDoc,
+  doc, updateDoc, Timestamp, DocumentReference, addDoc, deleteField,
   collection, onSnapshot, deleteDoc, serverTimestamp, getDoc, getDocs, query, where
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, isSalarie } from "@/store/authStore";
 import { subscribeIntervention, updateIntervention, createRelance, countRelances, resolveUserNom, resolveLogementInfo, resolveOperationInfo, type InterventionDetail } from "@/lib/formsService";
 import { subscribeWorkflowByPlanning, lancerWorkflow, arreterWorkflowByPlanning, type WorkflowRelance } from "@/lib/workflowRelanceService";
 import { generateQuitusPdf } from "@/lib/generateQuitusPdf";
+import { geocodeAddress, estimateTravelTime } from "@/lib/geocode";
 import { LoadingPage, Spinner } from "@/components/ui";
 import { NavButton } from "@/components/ui/NavButton";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
@@ -39,6 +42,13 @@ interface LogementInfo {
   id: string; numLogement?: string; nomOccupant?: string;
   telOccupant?: string; mailOccupant?: string; etageLogement?: number;
   typeContact?: string; roleContact?: string;
+}
+
+function formatMinutes(min: number): string {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
 }
 
 function StatutBadge({ statut }: { statut?: string }) {
@@ -93,7 +103,7 @@ function SignatureSection({ label, existing, presenceValue, onPresenceChange, on
     if (!canvasRef.current) return;
     setSaving(true);
     try { await onSave(canvasRef.current.toDataURL("image/png")); setMode("view"); toast.success("Signature enregistrée !"); }
-    catch { toast.error("Erreur signature"); } finally { setSaving(false); }
+    catch { /* erreurs spécifiques gérées par le callback */ } finally { setSaving(false); }
   };
 
   return (
@@ -206,6 +216,8 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
   const [presenceSignataire, setPresenceSignataire] = useState("");
   const [editSignataire, setEditSignataire] = useState(false);
   const [savingSignataire, setSavingSignataire] = useState(false);
+  const [heureArrivee, setHeureArrivee] = useState("");
+  const [heureDepart, setHeureDepart] = useState("");
 
   // Relance simple
   const [showRelance, setShowRelance] = useState(false); const [motifRelance, setMotifRelance] = useState(""); const [savingRelance, setSavingRelance] = useState(false);
@@ -238,10 +250,11 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
 
   // Assignation technicien inline
   const [showAssignTech, setShowAssignTech] = useState(false);
-  const [techniciens, setTechniciens] = useState<{id: string; displayName: string; photoUrl?: string}[]>([]);
+  const [techniciens, setTechniciens] = useState<{id: string; displayName: string; photoUrl?: string; adresseDepart?: string; adresseDepartLat?: number; adresseDepartLon?: number}[]>([]);
+  const [travelEstimates, setTravelEstimates] = useState<Map<string, { minutes: number; distanceKm: number } | null>>(new Map());
   const [assignTechId, setAssignTechId] = useState("");
   const [savingTech, setSavingTech] = useState(false);
-  const [planningPerTech, setPlanningPerTech] = useState<Map<string, { id: string; dateRdv?: Date; heureRdv?: Date; heureFinRdv?: Date | null; logementNum: string }[]>>(new Map());
+  const [planningPerTech, setPlanningPerTech] = useState<Map<string, { id: string; dateRdv?: Date; heureRdv?: Date; heureFinRdv?: Date | null; logementNum: string; batimentAdresse?: string }[]>>(new Map());
   const [expandedTechPlanning, setExpandedTechPlanning] = useState<string | null>(null);
   const [assignMode, setAssignMode] = useState<"tech" | "sous-traitant">("tech");
   const [sousTraitantNom, setSousTraitantNom] = useState("");
@@ -261,6 +274,21 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
 
   const planRef = doc(db, "Planning", id) as DocumentReference;
 
+  const addHistorique = useCallback(async (action: string, typeNote = "Historique") => {
+    const { firebaseUser: fbu, userApp: ua } = useAuthStore.getState();
+    if (!fbu) return;
+    const auteur = ua?.displayName ?? fbu.displayName ?? fbu.email ?? "Utilisateur";
+    await addDoc(collection(db, "Notes_travaux"), {
+      notes: `${auteur} : ${action}`,
+      type_note: typeNote,
+      ref_planning: doc(db, "Planning", id),
+      note_par: doc(db, "usersapp", fbu.uid),
+      date_create: serverTimestamp(),
+      auto: "Oui",
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
   useEffect(() => {
     setLoading(true);
     const unsub = subscribeIntervention(id, async item => {
@@ -273,6 +301,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
       setNomFact(item.nomFacturation ?? ""); setMailFact(item.mailFacturation ?? "");
       setNomSignataire(item.nomClientSignataire ?? ""); setPrenomSignataire(item.prenomClientSignature ?? "");
       setPresenceSignataire(item.presenceOccupant ?? "");
+      setHeureArrivee(item.heureArrivee ?? ""); setHeureDepart(item.heureDepart ?? "");
       if (item.dateRdv) setNewDate(format(item.dateRdv, "yyyy-MM-dd"));
       if (item.heureRdv) setNewHeureDebut(format(item.heureRdv, "HH:mm"));
       if (item.heureFinRdv) setNewHeureFin(format(item.heureFinRdv, "HH:mm"));
@@ -316,6 +345,9 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
         id: d.id,
         displayName: (d.data().display_name as string) ?? `${d.data().prenom ?? ""} ${d.data().nom ?? ""}`.trim(),
         photoUrl: d.data().photo_url as string ?? undefined,
+        adresseDepart: d.data().adresse_depart as string | undefined,
+        adresseDepartLat: d.data().adresse_depart_lat as number | undefined,
+        adresseDepartLon: d.data().adresse_depart_lon as number | undefined,
       }))));
     return () => { unsub(); unsubPhotos(); unsubWorkflow(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -329,7 +361,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
 
   const handleSaveCR = async () => {
     setSavingCR(true);
-    try { await updateIntervention(id, { compteRenduTechnicien: cr, travauxFinis }); setEditCR(false); toast.success("CR sauvegardé"); }
+    try { await updateIntervention(id, { compteRenduTechnicien: cr, travauxFinis }); addHistorique("Compte rendu mis à jour", "Compte rendu").catch(() => {}); setEditCR(false); toast.success("CR sauvegardé"); }
     catch { toast.error("Erreur"); } finally { setSavingCR(false); }
   };
 
@@ -401,6 +433,72 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
     return () => clearTimeout(timer);
   }, [newDate, newHeureDebut, newHeureFin, editDate, checkOverlap]);
 
+  // Calcul d'estimation de trajet dès qu'un technicien est sélectionné
+  useEffect(() => {
+    if (!assignTechId) return;
+    const tech = techniciens.find(t => t.id === assignTechId);
+    const dest = batimentFull?.adresse;
+    if (!dest || !tech) return;
+    const techItems = planningPerTech.get(assignTechId) ?? [];
+    const others = techItems.filter(p => p.id !== id && p.batimentAdresse);
+    const currentDateRdv = inter?.dateRdv;
+    const prevItem = currentDateRdv
+      ? (others.filter(p => p.dateRdv && p.dateRdv < currentDateRdv).pop() ?? null)
+      : null;
+    const originAddress = prevItem?.batimentAdresse ?? tech.adresseDepart;
+    if (!originAddress) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const destCoords = await geocodeAddress(dest);
+        const originCoords: [number, number] | null = (!prevItem && tech.adresseDepartLat && tech.adresseDepartLon)
+          ? [tech.adresseDepartLat, tech.adresseDepartLon]
+          : await geocodeAddress(originAddress);
+        if (cancelled || !destCoords || !originCoords) return;
+        const est = estimateTravelTime(originCoords[0], originCoords[1], destCoords[0], destCoords[1]);
+        setTravelEstimates(prev => new Map(prev).set(assignTechId, est));
+      } catch {
+        if (!cancelled) setTravelEstimates(prev => new Map(prev).set(assignTechId, null));
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignTechId, batimentFull?.adresse, planningPerTech]);
+
+  // Auto-charger le planning du technicien sélectionné pour estimer le trajet
+  useEffect(() => {
+    if (!assignTechId || !showAssignTech) return;
+    if (planningPerTech.has(assignTechId)) return;
+    const techRef = doc(db, "usersapp", assignTechId);
+    getDocs(query(collection(db, "Planning"), where("ref_users", "==", techRef))).then(async snap => {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const items = await Promise.all(snap.docs
+        .filter(d => { const dr = d.data().date_rdv?.toDate?.(); return dr && dr >= today; })
+        .map(async d => {
+          const logRef = (d.data().ref_logement ?? d.data().logement_ref) as DocumentReference | undefined;
+          let logNum = "—"; let batimentAdresse: string | undefined;
+          if (logRef) {
+            try {
+              const ls = await getDoc(logRef);
+              if (ls.exists()) {
+                logNum = ls.data().num_logement;
+                const batRef = ls.data().batiment_ref as DocumentReference | undefined;
+                if (batRef) {
+                  const batSnap = await getDoc(batRef);
+                  if (batSnap.exists()) batimentAdresse = (batSnap.data().adresse_batiment ?? batSnap.data().adresse) as string | undefined;
+                }
+              }
+            } catch {}
+          }
+          return { id: d.id, dateRdv: d.data().date_rdv?.toDate?.(), heureRdv: d.data().heure_rdv?.toDate?.(), heureFinRdv: d.data().heure_fin_rdv?.toDate?.() ?? null, logementNum: logNum, batimentAdresse };
+        })
+      );
+      items.sort((a, b) => (a.dateRdv?.getTime() ?? 0) - (b.dateRdv?.getTime() ?? 0));
+      setPlanningPerTech(prev => new Map(prev).set(assignTechId, items));
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignTechId, showAssignTech]);
+
   const handleSaveDate = async () => {
     setSavingDate(true);
     try {
@@ -412,8 +510,19 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
       await updateDoc(planRef, updates);
       // RDV pris → arrêter le workflow de relance s'il est actif
       if (newDate) arreterWorkflowByPlanning(id).catch(console.error);
+      const datePart = newDate ? new Date(newDate + "T12:00:00").toLocaleDateString("fr-FR") : "";
+      const heurePart = newHeureDebut ? ` à ${newHeureDebut}${newHeureFin ? ` – ${newHeureFin}` : ""}` : "";
+      addHistorique(`RDV planifié : ${datePart}${heurePart}`, "Planification").catch(() => {});
       setEditDate(false); toast.success("Date/heure mise à jour !");
     } catch { toast.error("Erreur"); } finally { setSavingDate(false); }
+  };
+
+  const handleClearDate = async () => {
+    try {
+      await updateDoc(planRef, { date_rdv: deleteField(), heure_rdv: deleteField(), heure_fin_rdv: deleteField() });
+      addHistorique("Date et heures de RDV effacées", "Planification").catch(() => {});
+      setEditDate(false); toast.success("Date effacée");
+    } catch { toast.error("Erreur"); }
   };
 
   const uploadSig = async (dataUrl: string, field: string): Promise<string> => {
@@ -425,9 +534,15 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
   };
 
   const handleSigClient = async (dataUrl: string) => {
+    if (!nomSignataire.trim()) {
+      toast.error("Veuillez renseigner le nom du signataire client avant de signer");
+      setEditSignataire(true);
+      throw new Error("validation");
+    }
     const url = await uploadSig(dataUrl, "client");
     await updateDoc(planRef, { signatureClient: url, nomClientSignataire: nomSignataire, prenomClientSignature: prenomSignataire, presence_occupant: presenceSignataire, date_signature_client: serverTimestamp() });
     if (inter?.refLogement) await updateDoc(inter.refLogement, { etat_signature: "Signé" });
+    addHistorique("Signature client enregistrée", "Signature client").catch(() => {});
   };
 
   const handleImportSigClient = async (file: File) => {
@@ -437,8 +552,16 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
   };
 
   const handleSigTech = async (dataUrl: string) => {
+    if (!heureArrivee) { toast.error("Veuillez indiquer l'heure d'arrivée du technicien"); throw new Error("validation"); }
+    if (!heureDepart) { toast.error("Veuillez indiquer l'heure de départ du technicien"); throw new Error("validation"); }
     const url = await uploadSig(dataUrl, "tech");
-    await updateDoc(planRef, { signature_technicien: url, date_signature_technicien: serverTimestamp() });
+    await updateDoc(planRef, {
+      signature_technicien: url,
+      date_signature_technicien: serverTimestamp(),
+      heure_arrivee_tech: heureArrivee,
+      heure_depart_tech: heureDepart,
+    });
+    addHistorique(`Signature technicien — arrivée ${heureArrivee}, départ ${heureDepart}`, "Signature technicien").catch(() => {});
   };
 
   // Quitus PDF upload manuel
@@ -447,6 +570,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
       const r = storageRef(storage, `quitus/${id}_${Date.now()}_${file.name}`);
       await uploadBytes(r, file); const url = await getDownloadURL(r);
       await updateDoc(planRef, { quitus_pdf: url });
+      addHistorique("Quitus PDF importé manuellement", "Quitus").catch(() => {});
       toast.success("Quitus PDF importé !");
     } catch { toast.error("Erreur upload quitus"); }
   };
@@ -505,6 +629,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
       });
       setShowStartWorkflow(false);
       setNoteWorkflow("");
+      addHistorique("Suivi de relances client lancé", "Relances").catch(() => {});
       toast.success("Système de relance lancé ! Des rappels vous seront envoyés automatiquement.");
     } catch (e) { console.error(e); toast.error("Erreur lors du lancement"); }
     finally { setSavingWorkflow(false); }
@@ -604,6 +729,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
       const url = await getDownloadURL(r);
       await updateDoc(planRef, { quitus_pdf: url });
       if (inter.refLogement) await updateDoc(inter.refLogement, { etat_quitus: "Envoyé" });
+      addHistorique("Quitus généré", "Quitus").catch(() => {});
       toast.success("Quitus généré et sauvegardé !");
     } catch (e) {
       console.error(e);
@@ -622,10 +748,14 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
         await updateDoc(planRef, { ref_users: doc(db, "usersapp", assignTechId), sous_traitant_si_pas_tech: null });
         const t = techniciens.find(t => t.id === assignTechId);
         if (t) setTechNom(t.displayName);
+        addHistorique(`Technicien assigné : ${t?.displayName ?? assignTechId}`, "Assignation").catch(() => {});
+        // Invalider le cache — la prochaine ouverture du modal recharge le planning à jour
+        setPlanningPerTech(prev => { const next = new Map(prev); next.delete(assignTechId); return next; });
         toast.success("Technicien assigné !");
       } else {
         await updateDoc(planRef, { sous_traitant_si_pas_tech: sousTraitantNom.trim(), ref_users: null });
         setTechNom(sousTraitantNom.trim());
+        addHistorique(`Sous-traitant assigné : ${sousTraitantNom.trim()}`, "Assignation").catch(() => {});
         toast.success("Sous-traitant assigné !");
       }
       setShowAssignTech(false);
@@ -643,10 +773,23 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
     const items = await Promise.all(snap.docs
       .filter(d => { const dr = d.data().date_rdv?.toDate?.(); return dr && dr >= today; })
       .map(async d => {
-        const logRef = d.data().ref_logement as DocumentReference;
+        const logRef = (d.data().ref_logement ?? d.data().logement_ref) as DocumentReference | undefined;
         let logNum = "—";
-        if (logRef) { try { const ls = await getDoc(logRef); if (ls.exists()) logNum = ls.data().num_logement; } catch {} }
-        return { id: d.id, dateRdv: d.data().date_rdv?.toDate?.(), heureRdv: d.data().heure_rdv?.toDate?.(), heureFinRdv: d.data().heure_fin_rdv?.toDate?.() ?? null, logementNum: logNum };
+        let batimentAdresse: string | undefined;
+        if (logRef) {
+          try {
+            const ls = await getDoc(logRef);
+            if (ls.exists()) {
+              logNum = ls.data().num_logement;
+              const batRef = ls.data().batiment_ref as DocumentReference | undefined;
+              if (batRef) {
+                const batSnap = await getDoc(batRef);
+                if (batSnap.exists()) batimentAdresse = (batSnap.data().adresse_batiment ?? batSnap.data().adresse) as string | undefined;
+              }
+            }
+          } catch {}
+        }
+        return { id: d.id, dateRdv: d.data().date_rdv?.toDate?.(), heureRdv: d.data().heure_rdv?.toDate?.(), heureFinRdv: d.data().heure_fin_rdv?.toDate?.() ?? null, logementNum: logNum, batimentAdresse };
       })
     );
     items.sort((a, b) => (a.dateRdv?.getTime() ?? 0) - (b.dateRdv?.getTime() ?? 0));
@@ -687,10 +830,26 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
     return startH < tEnd && endH > tStart;
   };
 
+  const salarie = isSalarie(userApp);
   const dateLabel = inter.dateRdv ? format(inter.dateRdv, "EEEE dd MMMM yyyy", { locale: fr }) : "Date non définie";
   const heureLabel = inter.heureRdv ? `${format(inter.heureRdv, "HH:mm")}${inter.heureFinRdv ? ` – ${format(inter.heureFinRdv, "HH:mm")}` : ""}` : null;
   const tempsAlloue = inter.tempsAlloue;
   const isPlanifie = !!inter.dateRdv;
+
+  // Panneau de trajet pour la modale d'assignation (affiché dès la sélection d'un tech)
+  const selectedTech = assignTechId ? techniciens.find(t => t.id === assignTechId) : null;
+  const selectedTechItems = assignTechId ? (planningPerTech.get(assignTechId) ?? []) : [];
+  const selectedTechOthers = selectedTechItems.filter(p => p.id !== id && p.batimentAdresse);
+  const selectedTechPrev = inter.dateRdv
+    ? (selectedTechOthers.filter(p => p.dateRdv && p.dateRdv < inter.dateRdv!).pop() ?? null)
+    : null;
+  const selectedTechOriginAddress = selectedTechPrev?.batimentAdresse ?? selectedTech?.adresseDepart;
+  const selectedTechOriginLabel = selectedTechPrev ? `Log. ${selectedTechPrev.logementNum}` : "domicile / dépôt";
+  const selectedTechOriginCoords: [number, number] | undefined = (!selectedTechPrev && selectedTech?.adresseDepartLat && selectedTech?.adresseDepartLon)
+    ? [selectedTech.adresseDepartLat!, selectedTech.adresseDepartLon!]
+    : undefined;
+  const selectedTechTravelEst = assignTechId ? travelEstimates.get(assignTechId) : undefined;
+  const showTravelPanel = assignMode === "tech" && !!assignTechId && !!selectedTech && !!batimentFull?.adresse && !!selectedTechOriginAddress;
 
   const quitusReqs = [
     { label: "Signature technicien", done: !!inter.signatureTechnicien },
@@ -709,13 +868,13 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
             <h1 className="text-lg font-bold text-primary-text capitalize leading-tight" style={{ fontFamily: "var(--font-inter-tight)" }}>{dateLabel}</h1>
             <div className="flex flex-wrap items-center gap-2 mt-0.5">
               {inter.quitusPdf && <a href={inter.quitusPdf} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1"><FileText size={11} />Quitus</a>}
-              {inter.refOperation && (
+              {!salarie && inter.refOperation && (
                 <button onClick={() => router.push(`/chantiers/${(inter.refOperation as any).id}`)}
                   className="text-xs text-primary font-semibold flex items-center gap-1 hover:underline">
                   <Building2 size={11} />Voir le chantier
                 </button>
               )}
-              {logementFull && (
+              {!salarie && logementFull && (
                 <button onClick={() => router.push(`/logements/${logementFull.id}`)}
                   className="text-xs text-primary font-semibold flex items-center gap-1 hover:underline">
                   <Home size={11} />Fiche logement
@@ -724,7 +883,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-            <button onClick={() => router.push(`/interventions/${id}/modifier`)} className="btn-outline flex items-center gap-1.5 text-sm"><Pencil size={14} />Modifier</button>
+            {!salarie && <button onClick={() => router.push(`/interventions/${id}/modifier`)} className="btn-outline flex items-center gap-1.5 text-sm"><Pencil size={14} />Modifier</button>}
             {isAdmin(userApp) && (
               confirmDelete ? (
                 <button
@@ -759,7 +918,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                 {tempsAlloue && <span className="text-xs text-secondary-text">({tempsAlloue}h alloué)</span>}
                 {inter.typeDemande && <span className="badge bg-secondary/15 text-secondary-600 border-secondary/20">{inter.typeDemande}</span>}
               </div>
-              <button onClick={() => setEditDate(!editDate)} className="text-xs text-primary font-semibold flex items-center gap-1 shrink-0"><Pencil size={12} />Date</button>
+              {!salarie && <button onClick={() => setEditDate(!editDate)} className="text-xs text-primary font-semibold flex items-center gap-1 shrink-0"><Pencil size={12} />Date</button>}
             </div>
             {editDate && (
               <div className="bg-primary-bg rounded-xl p-3 mb-3 space-y-2 animate-slide-up">
@@ -769,6 +928,24 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                   <div><label className="text-xs font-medium text-secondary-text">Heure fin</label><input className="input-base mt-1" type="time" value={newHeureFin} onChange={e => setNewHeureFin(e.target.value)} /></div>
                 </div>
                 {tempsAlloue && <p className="text-xs text-secondary-text flex items-center gap-1"><AlertTriangle size={11} className="text-tertiary" />Temps alloué : {tempsAlloue}h</p>}
+                {(() => {
+                  if (!tempsAlloue || !newHeureDebut || !newHeureFin) return null;
+                  const [dh, dm] = newHeureDebut.split(":").map(Number);
+                  const [fh, fm] = newHeureFin.split(":").map(Number);
+                  const durationMin = (fh * 60 + fm) - (dh * 60 + dm);
+                  if (durationMin <= 0) return null;
+                  const allocMin = Math.round(Number(tempsAlloue) * 60);
+                  if (durationMin === allocMin) return null;
+                  const durH = Math.floor(durationMin / 60);
+                  const durM = durationMin % 60;
+                  const durLabel = durH > 0 ? `${durH}h${durM > 0 ? String(durM).padStart(2, "0") : ""}` : `${durM} min`;
+                  return (
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                      <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700">Durée saisie ({durLabel}) différente du temps alloué ({tempsAlloue}h). Vous pouvez confirmer quand même.</p>
+                    </div>
+                  );
+                })()}
                 {overlapWarning && (
                   <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl p-3">
                     <AlertTriangle size={15} className="text-orange-500 shrink-0 mt-0.5" />
@@ -778,7 +955,15 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                     </div>
                   </div>
                 )}
-                <div className="flex gap-2"><button onClick={handleSaveDate} disabled={savingDate} className="btn-primary flex items-center gap-2 flex-1 text-sm">{savingDate ? <Spinner size="sm" /> : <Check size={13} />}Confirmer{overlapWarning ? " quand même" : ""}</button><button onClick={() => setEditDate(false)} className="btn-outline px-3"><X size={13} /></button></div>
+                <div className="flex gap-2">
+                  <button onClick={handleSaveDate} disabled={savingDate} className="btn-primary flex items-center gap-2 flex-1 text-sm">{savingDate ? <Spinner size="sm" /> : <Check size={13} />}Confirmer{overlapWarning ? " quand même" : ""}</button>
+                  <button onClick={() => setEditDate(false)} className="btn-outline px-3"><X size={13} /></button>
+                </div>
+                {(inter?.dateRdv || inter?.heureRdv) && (
+                  <button onClick={handleClearDate} className="text-xs text-error flex items-center gap-1 mt-1 hover:underline">
+                    <Trash2 size={11} />Effacer la date et les heures
+                  </button>
+                )}
               </div>
             )}
 
@@ -794,10 +979,21 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                     <div className="mt-1.5 space-y-1.5">
                       {logementFull.telOccupant && (
                         <div>
-                          <p className="text-xs font-mono text-primary-text mb-1">{logementFull.telOccupant}</p>
+                          <p className="text-xs text-primary-text mb-1">{logementFull.telOccupant}</p>
                           <div className="flex gap-1.5">
                             <a href={`tel:${logementFull.telOccupant}`} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 text-xs font-semibold border border-green-200 hover:bg-green-100 transition-colors"><Phone size={11} />Appeler</a>
                             <a href={`sms:${logementFull.telOccupant}`} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-200 hover:bg-blue-100 transition-colors"><MessageSquare size={11} />SMS</a>
+                            {inter.dateRdv && (
+                              <div className="relative group">
+                                <a
+                                  href={`sms:${logementFull.telOccupant}?body=${encodeURIComponent(`Bonjour${logementFull.nomOccupant ? ` ${logementFull.nomOccupant}` : ""},\n\nNous vous rappelons votre rendez-vous prévu le ${format(inter.dateRdv, "dd MMMM yyyy", { locale: fr })}${inter.heureRdv ? ` à ${format(inter.heureRdv, "HH:mm")}` : ""}.\n\nCordialement,\nClimat Confort Moreau`)}`}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-semibold border border-violet-200 hover:bg-violet-100 transition-colors"
+                                >
+                                  <Calendar size={11} />Rappel RDV
+                                  <span className="ml-1 text-[9px] bg-violet-200 text-violet-800 px-1 rounded font-bold">BONUS</span>
+                                </a>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -834,7 +1030,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
 
             {/* Chantier */}
             <div className="flex items-center gap-2 mb-2 text-xs text-secondary-text">
-              <Building2 size={12} /><span>{chantierInfo.nom} <span className="font-mono">({chantierInfo.num})</span></span>
+              <Building2 size={12} /><span>{chantierInfo.nom} <span className="text-xs">({chantierInfo.num})</span></span>
             </div>
 
             {/* Technicien / Sous-traitant */}
@@ -845,19 +1041,25 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                 <p className="text-sm font-semibold">{techNom || <span className="text-secondary-text italic font-normal">Non assigné</span>}</p>
                 {inter.sousTraitant && !inter.refUsers && <span className="badge bg-orange-100 text-orange-700 border-orange-200 text-xs mt-0.5">Sous-traitant</span>}
               </div>
+              {!salarie && (
               <div className="flex flex-col gap-1.5 shrink-0 items-end">
                 {techNom && <button onClick={loadPlanningTech} className="text-xs text-primary font-semibold flex items-center gap-1"><Calendar size={12} />Planning</button>}
                 <div className="flex flex-col gap-1">
                   {techNom && (
                     <button onClick={async () => {
-                      try { await updateDoc(planRef, { ref_users: null, sous_traitant_si_pas_tech: null }); setTechNom(""); toast.success("Technicien désassigné"); }
+                      try { await updateDoc(planRef, { ref_users: null, sous_traitant_si_pas_tech: null }); setTechNom(""); addHistorique("Technicien désassigné", "Assignation").catch(() => {}); toast.success("Technicien désassigné"); }
                       catch { toast.error("Erreur"); }
                     }} className="btn-outline text-xs px-2.5 py-1.5 flex items-center gap-1 text-error border-error/30 hover:bg-red-50">
                       <X size={12} />Désassigner
                     </button>
                   )}
                   <button onClick={() => {
-                    setAssignTechId(inter.refUsers?.id ?? "");
+                    const currentTechId = inter.refUsers?.id;
+                    // Invalider le cache du tech actuel pour recharger son planning à jour
+                    if (currentTechId) {
+                      setPlanningPerTech(prev => { const next = new Map(prev); next.delete(currentTechId); return next; });
+                    }
+                    setAssignTechId(currentTechId ?? "");
                     setSousTraitantNom(inter.sousTraitant ?? "");
                     setAssignMode(inter.sousTraitant && !inter.refUsers ? "sous-traitant" : "tech");
                     setExpandedTechPlanning(null);
@@ -867,6 +1069,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                   </button>
                 </div>
               </div>
+              )}
             </div>
 
             {inter.descriptifTravaux && <div className="bg-primary-bg rounded-xl p-3 mt-3"><p className="text-xs text-secondary-text mb-1">Descriptif</p><p className="text-sm">{inter.descriptifTravaux}</p></div>}
@@ -917,13 +1120,13 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
         <div className="card overflow-hidden mb-4">
           <div className="flex items-center justify-between px-4 py-2.5 bg-primary-bg border-b border-alternate">
             <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Informations</p>
-            {!editInfos && <button onClick={() => setEditInfos(true)} className="text-xs text-primary font-semibold flex items-center gap-1"><Pencil size={12} />Modifier</button>}
+            {!salarie && !editInfos && <button onClick={() => setEditInfos(true)} className="text-xs text-primary font-semibold flex items-center gap-1"><Pencil size={12} />Modifier</button>}
           </div>
           {!editInfos ? (
             <div className="divide-y divide-alternate/60 text-sm">
               {/* Facturation */}
               <div className="flex items-center gap-3 py-2.5 px-4">
-                <p className="text-xs text-secondary-text w-28 shrink-0 flex items-center gap-1"><Euro size={11} />Facturation</p>
+                <p className="text-xs text-secondary-text w-28 shrink-0 flex items-center gap-1">Facturation</p>
                 <div className="flex items-center gap-2 flex-wrap flex-1">
                   {inter.demandeFacturable && <span className="font-medium">{inter.demandeFacturable === "Travaux facturables" ? "Facturable" : "Non facturable"}</span>}
                   {inter.demandeFacturable === "Travaux facturables" && (
@@ -986,7 +1189,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
           )}
         </div>
 
-        <div className="card overflow-hidden mb-4">
+        {!salarie && <div className="card overflow-hidden mb-4">
           <div className="flex items-center justify-between px-4 py-2.5 bg-primary-bg border-b border-alternate">
             <div className="flex items-center gap-2">
               <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Suivi de relances client</p>
@@ -1109,7 +1312,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                       </div>
                     ))}
                   </div>
-                  <button onClick={async () => { await arreterWorkflowByPlanning(id); toast.success("Relances arrêtées — RDV pris !"); }}
+                  <button onClick={async () => { await arreterWorkflowByPlanning(id); addHistorique("Suivi de relances arrêté — RDV pris", "Relances").catch(() => {}); toast.success("Relances arrêtées — RDV pris !"); }}
                     className="btn-outline w-full flex items-center justify-center gap-2 text-sm text-green-700 border-green-200 hover:bg-green-50">
                     <Check size={14} />RDV pris — Arrêter les relances
                   </button>
@@ -1124,7 +1327,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
               </div>
             )}
           </div>
-        </div>
+        </div>}
 
         {isPlanifie && (<>
 
@@ -1169,7 +1372,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
               </div>
             )}
           </div>
-          {/* Signataire client — read/edit mode */}
+          {/* Signataire client — éditable si pas encore signé, sinon verrouillé */}
           {inter.signatureClient && !editSignataire ? (
             <div className="px-4 pb-4">
               <div className="bg-primary-bg rounded-xl p-3">
@@ -1177,7 +1380,11 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                   <p className="text-xs font-semibold text-secondary-text">Informations signataire</p>
                   <button onClick={() => setEditSignataire(true)} className="text-xs text-primary font-semibold flex items-center gap-1"><Pencil size={12} />Modifier</button>
                 </div>
-                <p className="text-sm font-medium text-primary-text">{inter.prenomClientSignature} {inter.nomClientSignataire}</p>
+                {inter.nomClientSignataire || inter.prenomClientSignature ? (
+                  <p className="text-sm font-medium text-primary-text">{inter.prenomClientSignature} {inter.nomClientSignataire}</p>
+                ) : (
+                  <p className="text-sm text-secondary-text italic">Non renseigné</p>
+                )}
                 {inter.presenceOccupant && (
                   <p className="text-xs text-secondary-text mt-0.5">Occupant {inter.presenceOccupant === "Oui" ? "présent" : "absent"}</p>
                 )}
@@ -1205,20 +1412,41 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                   ))}
                 </div>
               </div>
-              {inter.signatureClient && editSignataire && (
-                <div className="flex gap-2">
-                  <button onClick={handleSaveSignataire} disabled={savingSignataire} className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm">
-                    {savingSignataire ? <Spinner size="sm" /> : <Check size={13} />}Sauvegarder
-                  </button>
+              <div className="flex gap-2">
+                <button onClick={handleSaveSignataire} disabled={savingSignataire} className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm">
+                  {savingSignataire ? <Spinner size="sm" /> : <Check size={13} />}Sauvegarder
+                </button>
+                {inter.signatureClient && (
                   <button onClick={() => { setEditSignataire(false); setNomSignataire(inter.nomClientSignataire ?? ""); setPrenomSignataire(inter.prenomClientSignature ?? ""); setPresenceSignataire(inter.presenceOccupant ?? ""); }} className="btn-outline px-3"><X size={13} /></button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
           <div className="px-4 pb-4">
             <SignatureSection label="Signature client" existing={inter.signatureClient} onSave={handleSigClient} onImport={handleImportSigClient} />
           </div>
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4 space-y-3">
+            {!inter.signatureTechnicien && (
+              <div className="bg-primary-bg rounded-xl p-3 space-y-2">
+                <p className="text-xs font-semibold text-secondary-text">Horaires technicien <span className="text-error">*</span></p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Heure d&apos;arrivée</label>
+                    <input className="input-base mt-1" type="time" value={heureArrivee} onChange={e => setHeureArrivee(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-secondary-text">Heure de départ</label>
+                    <input className="input-base mt-1" type="time" value={heureDepart} onChange={e => setHeureDepart(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            )}
+            {inter.signatureTechnicien && (inter.heureArrivee || inter.heureDepart) && (
+              <div className="bg-primary-bg rounded-xl p-3 flex gap-4 flex-wrap">
+                {inter.heureArrivee && <p className="text-xs text-secondary-text">Arrivée : <span className="font-semibold text-primary-text">{inter.heureArrivee}</span></p>}
+                {inter.heureDepart && <p className="text-xs text-secondary-text">Départ : <span className="font-semibold text-primary-text">{inter.heureDepart}</span></p>}
+              </div>
+            )}
             <SignatureSection label="Signature technicien" existing={inter.signatureTechnicien} onSave={handleSigTech} />
           </div>
         </div>
@@ -1271,7 +1499,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                   const files = Array.from(e.target.files ?? []); if (!files.length) return;
                   setUploadingApres(true);
                   for (const file of files) { try { const r = storageRef(storage, `interventions/${id}/apres/${Date.now()}_${file.name}`); const snap = await uploadBytes(r, file); const url = await getDownloadURL(snap.ref); await addDoc(collection(db, "Planning", id, "Photo_apres"), { photos_apres: url, date_create: serverTimestamp(), planning_ref: planRef }); } catch {} }
-                  setUploadingApres(false); toast.success("Photos ajoutées !"); e.target.value = "";
+                  setUploadingApres(false); addHistorique(`${files.length} photo(s) après intervention ajoutée(s)`, "Photos").catch(() => {}); toast.success("Photos ajoutées !"); e.target.value = "";
                 }} />
               </div>
               {photosApres.length === 0 ? (
@@ -1315,10 +1543,10 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                 </span>
               )}
             </div>
-            {!editQuitusNum
+            {!salarie && (!editQuitusNum
               ? <button onClick={() => { setNewQuitusNum(String(inter.numQuitus ?? "")); setEditQuitusNum(true); }} className="text-xs text-primary font-semibold flex items-center gap-1"><Pencil size={12} />N°</button>
               : <button onClick={() => setEditQuitusNum(false)} className="text-xs text-secondary-text"><X size={14} /></button>
-            }
+            )}
           </div>
           {editQuitusNum && (
             <div className="px-4 pt-3 pb-0 flex items-center gap-2 animate-slide-up">
@@ -1340,14 +1568,14 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-green-700"><CheckCircle2 size={16} /><p className="text-sm font-semibold">Quitus disponible</p></div>
-                  <button
+                  {!salarie && <button
                     onClick={handleGenerateQuitus}
                     disabled={generatingQuitus}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-alternate text-xs font-semibold text-secondary-text hover:text-primary hover:border-primary/40 transition-all"
                   >
                     {generatingQuitus ? <Spinner size="sm" /> : <Download size={12} />}
                     {generatingQuitus ? "Génération…" : "Re-générer"}
-                  </button>
+                  </button>}
                 </div>
                 <a href={inter.quitusPdf} target="_blank" rel="noopener noreferrer" className="btn-secondary w-full flex items-center justify-center gap-2 py-2.5"><FileText size={16} />Télécharger le quitus PDF</a>
                 <a
@@ -1357,7 +1585,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                   <Mail size={16} />Envoyer par email
                 </a>
               </div>
-            ) : (
+            ) : !salarie ? (
               <div className="space-y-2">
                 {/* Conditions requises pour générer */}
                 <p className="text-xs font-semibold text-secondary-text uppercase tracking-wide">Conditions pour générer</p>
@@ -1384,13 +1612,13 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                   {generatingQuitus ? <><Spinner size="sm" />Génération en cours…</> : <><FileText size={15} />Générer le quitus</>}
                 </button>
               </div>
-            )}
-            <label className="w-full cursor-pointer">
+            ) : null}
+            {!salarie && <label className="w-full cursor-pointer">
               <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border-2 border-dashed border-alternate hover:border-primary/40 text-sm font-medium text-secondary-text hover:text-primary transition-colors">
                 <Upload size={16} />Importer un quitus PDF manuellement
               </div>
               <input type="file" accept="application/pdf" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (f) await handleQuitusUpload(f); e.target.value = ""; }} />
-            </label>
+            </label>}
           </div>
         </div>
 
@@ -1429,6 +1657,20 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
               ))}
             </div>
 
+            {/* Carte de localisation de l'intervention — masquée quand le panneau trajet prend le relai */}
+            {batimentFull?.adresse && !showTravelPanel && (
+              <div className="px-3 pb-2 shrink-0">
+                <p className="text-xs font-semibold text-secondary-text mb-1.5 flex items-center gap-1.5">
+                  <MapPin size={11} />Localisation de l&apos;intervention
+                  <span className="text-[8px] bg-violet-200 text-violet-800 px-1 rounded font-bold">BONUS</span>
+                </p>
+                <MapInterventions
+                  markers={[{ id: "inter", label: batimentFull.nomBatiment ?? "Intervention", address: batimentFull.adresse, color: "primary" }]}
+                  height="160px"
+                />
+              </div>
+            )}
+
             {assignMode === "tech" ? (
               <div className="overflow-y-auto flex-1 p-2 space-y-1">
                 {techniciens.filter(t => t.displayName?.trim()).map(t => {
@@ -1452,16 +1694,58 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                         )}
                         <div className="flex-1 min-w-0">
                           <span className="text-sm font-semibold text-primary-text">{t.displayName}</span>
+                          {(() => {
+                            let displayAddr = t.adresseDepart;
+                            if (planningPerTech.has(t.id)) {
+                              const tItems = planningPerTech.get(t.id)!;
+                              const others = tItems.filter(p => p.id !== id && p.batimentAdresse);
+                              const prevItem = inter.dateRdv
+                                ? (others.filter(p => p.dateRdv && p.dateRdv < inter.dateRdv!).pop() ?? null)
+                                : null;
+                              if (prevItem?.batimentAdresse) displayAddr = prevItem.batimentAdresse;
+                            }
+                            return displayAddr ? (
+                              <p className="text-[10px] text-secondary-text flex items-center gap-1 mt-0.5 leading-tight">
+                                <MapPin size={9} className="shrink-0" />
+                                <span className="truncate">{displayAddr}</span>
+                              </p>
+                            ) : null;
+                          })()}
                           {hasConflict && (
                             <p className="text-xs text-red-600 font-semibold flex items-center gap-1 mt-0.5">
                               <AlertTriangle size={10} />{conflictItems.length} conflit(s) ce créneau
                             </p>
                           )}
                         </div>
-                        <button type="button" onClick={e => { e.stopPropagation(); loadTechPlanningForModal(t.id); }}
-                          className={cn("text-xs font-semibold flex items-center gap-1 shrink-0", hasConflict ? "text-red-600" : "text-primary")}>
-                          <Calendar size={11} />{expandedTechPlanning === t.id ? "Masquer" : "Planning"}
-                        </button>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {batimentFull?.adresse && (() => {
+                            let originAddr = t.adresseDepart;
+                            if (planningPerTech.has(t.id)) {
+                              const tItems = planningPerTech.get(t.id)!;
+                              const others = tItems.filter(p => p.id !== id && p.batimentAdresse);
+                              const prevItem = inter.dateRdv
+                                ? (others.filter(p => p.dateRdv && p.dateRdv < inter.dateRdv!).pop() ?? null)
+                                : null;
+                              if (prevItem?.batimentAdresse) originAddr = prevItem.batimentAdresse;
+                            }
+                            if (!originAddr) return null;
+                            return (
+                              <a
+                                href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originAddr)}&destination=${encodeURIComponent(batimentFull.adresse)}&travelmode=driving`}
+                                target="_blank" rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
+                                className={cn("text-[10px] font-semibold flex items-center gap-0.5", hasConflict ? "text-red-500" : "text-primary")}
+                              >
+                                <MapPin size={9} />Itinéraire
+                                <span className="text-[7px] bg-violet-200 text-violet-800 px-0.5 rounded font-bold ml-0.5">BONUS</span>
+                              </a>
+                            );
+                          })()}
+                          <button type="button" onClick={e => { e.stopPropagation(); loadTechPlanningForModal(t.id); }}
+                            className={cn("text-xs font-semibold flex items-center gap-1", hasConflict ? "text-red-600" : "text-primary")}>
+                            <Calendar size={11} />{expandedTechPlanning === t.id ? "Masquer" : "Planning"}
+                          </button>
+                        </div>
                       </button>
                       {expandedTechPlanning === t.id && (
                         <div className="mx-2 mb-1 rounded-xl border overflow-hidden border-alternate bg-primary-bg">
@@ -1476,6 +1760,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                           {techItems.length === 0 ? (
                             <p className="text-xs text-secondary-text italic p-3">Aucun RDV à venir.</p>
                           ) : (
+                            <>
                             <div className="divide-y divide-alternate/50 max-h-48 overflow-y-auto">
                               {techItems.map(p => {
                                 const overlap = p.id !== id && isItemOverlap(p);
@@ -1505,6 +1790,39 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
                                 );
                               })}
                             </div>
+                            {(() => {
+                              const dest = batimentFull?.adresse;
+                              if (!dest) return null;
+                              const tech = techniciens.find(x => x.id === t.id);
+                              const others = techItems.filter(p => p.id !== id && p.batimentAdresse);
+                              const prev = inter.dateRdv
+                                ? (others.filter(p => p.dateRdv && p.dateRdv < inter.dateRdv!).pop() ?? null)
+                                : null;
+                              const originAddress = prev?.batimentAdresse ?? tech?.adresseDepart;
+                              if (!originAddress) return null;
+                              const originLabel = prev ? `Log. ${prev.logementNum}` : "domicile / dépôt";
+                              const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originAddress)}&destination=${encodeURIComponent(dest)}&travelmode=driving`;
+                              const travelEst = travelEstimates.get(t.id);
+                              return (
+                                <div className="border-t border-alternate px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+                                  <p className="text-[10px] text-secondary-text flex items-center gap-1">
+                                    <MapPin size={9} className="shrink-0" />
+                                    Depuis {originLabel}
+                                    {travelEst && (
+                                      <span className="font-semibold text-primary-text ml-1">
+                                        ~{formatMinutes(travelEst.minutes)} · ~{travelEst.distanceKm} km
+                                      </span>
+                                    )}
+                                    <span className="text-[8px] bg-violet-200 text-violet-800 px-1 rounded font-bold ml-0.5">BONUS</span>
+                                  </p>
+                                  <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
+                                    className="text-[10px] text-primary font-semibold flex items-center gap-0.5 hover:underline shrink-0">
+                                    <MapPin size={9} />Google Maps
+                                  </a>
+                                </div>
+                              );
+                            })()}
+                            </>
                           )}
                         </div>
                       )}
@@ -1521,6 +1839,47 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
               </div>
             )}
 
+            {/* Panneau de trajet — s'affiche dès qu'un tech est sélectionné */}
+            {showTravelPanel && (
+              <div className="px-3 pt-2 pb-2 border-t border-alternate shrink-0 bg-primary-bg">
+                <div className="flex items-center justify-between flex-wrap gap-1 mb-1">
+                  <p className="text-[10px] font-bold text-secondary-text uppercase tracking-wide flex items-center gap-1">
+                    <MapPin size={9} />Trajet depuis {selectedTechOriginLabel}
+                    <span className="text-[8px] bg-violet-200 text-violet-800 px-1 rounded font-bold">BONUS</span>
+                  </p>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(selectedTechOriginAddress!)}&destination=${encodeURIComponent(batimentFull!.adresse)}&travelmode=driving`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-[10px] text-primary font-semibold flex items-center gap-0.5 hover:underline">
+                    <MapPin size={9} />Google Maps
+                  </a>
+                </div>
+                {selectedTechTravelEst === undefined && (
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Spinner size="sm" />
+                    <p className="text-[10px] text-secondary-text">Calcul du trajet…</p>
+                  </div>
+                )}
+                {selectedTechTravelEst && (
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Clock size={10} className="text-secondary-text shrink-0" />
+                    <p className="text-[10px] text-secondary-text">
+                      ~<span className="font-bold text-primary-text">{formatMinutes(selectedTechTravelEst.minutes)}</span>
+                      <span className="mx-1 opacity-50">·</span>
+                      ~{selectedTechTravelEst.distanceKm} km
+                      <span className="ml-1 text-[8px] italic">(estimation)</span>
+                    </p>
+                  </div>
+                )}
+                <MapInterventions
+                  markers={[
+                    { id: "origin", label: selectedTechOriginLabel, address: selectedTechOriginAddress!, coords: selectedTechOriginCoords, color: "green" },
+                    { id: "dest", label: batimentFull?.nomBatiment ?? "Intervention", address: batimentFull!.adresse, color: "primary" },
+                  ]}
+                  height="110px"
+                />
+              </div>
+            )}
             <div className="p-3 border-t border-alternate shrink-0" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
               <button onClick={handleAssignTech}
                 disabled={(assignMode === "tech" ? !assignTechId : !sousTraitantNom.trim()) || savingTech}

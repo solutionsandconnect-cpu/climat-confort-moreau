@@ -15,6 +15,7 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ArrowLeft, Send, Paperclip, Image as ImageIcon, FileText, X, Play } from "lucide-react";
 import toast from "react-hot-toast";
+import { sendPushToUser } from "@/lib/pushService";
 
 interface Message {
   id: string;
@@ -63,6 +64,7 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
   const [uploading, setUploading] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -225,7 +227,17 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, firebaseUser?.uid, userId]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  // Empêche iOS Safari de scroller la page quand le clavier s'ouvre
+  useEffect(() => {
+    const prev = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    return () => { document.documentElement.style.overflow = prev; };
+  }, []);
 
   const uploadFiles = async (): Promise<{ images: string[]; pdfs: string[]; videos: string[] }> => {
     const upload = async (file: File, path: string) => {
@@ -289,6 +301,20 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
       }
       setMessageText("");
       setPendingImages([]); setPendingPdfs([]); setPendingVideos([]);
+
+      // Push notifications aux autres participants (non-bloquant)
+      if (firebaseUser && messageText.trim()) {
+        const senderName = userApp?.displayName ?? firebaseUser.displayName ?? "Messagerie CCM";
+        const preview = messageText.trim().length > 80 ? messageText.trim().substring(0, 80) + "…" : messageText.trim();
+        firebaseUser.getIdToken().then(idToken => {
+          const targets = discussion?.participantsIds
+            ? discussion.participantsIds.filter(pid => pid !== userId)
+            : destIdRef.current ? [destIdRef.current] : [];
+          targets.forEach(targetId => {
+            sendPushToUser({ callerIdToken: idToken, targetUserFirestoreId: targetId, title: senderName, body: preview, link: `/messagerie/${id}` }).catch(() => {});
+          });
+        }).catch(() => {});
+      }
     } catch (e: any) {
       console.error("Send error:", e);
       toast.error(`Erreur envoi : ${e?.message ?? "Vérifiez Firebase Storage"}`);
@@ -307,8 +333,8 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
   const hasPending = pendingImages.length + pendingPdfs.length + pendingVideos.length > 0;
 
   return (
-    <AppShell noPadBottom>
-      <div className="flex flex-col h-full">
+    <AppShell noPadBottom hideNav>
+      <div className="flex flex-col flex-1 min-h-0">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 bg-secondary-bg border-b border-alternate shrink-0">
           <button onClick={() => router.push("/messagerie")} className="p-2 rounded-lg hover:bg-primary-bg text-secondary-text hover:text-primary"><ArrowLeft size={20} /></button>
@@ -345,7 +371,7 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6 bg-primary-bg">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-6 bg-primary-bg">
           {grouped.map(group => (
             <div key={group.date}>
               <div className="flex items-center gap-3 mb-4">
@@ -434,6 +460,12 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
                 </button>
               </div>
             ))}
+            {pendingVideos.map((f, i) => (
+              <div key={i} className="flex items-center gap-1.5 bg-primary-bg rounded-lg px-2 py-1 text-xs relative">
+                <Play size={12} className="text-primary shrink-0" />{f.name.length > 12 ? f.name.substring(0, 12) + "…" : f.name}
+                <button onClick={() => setPendingVideos(p => p.filter((_, j) => j !== i))}><X size={10} /></button>
+              </div>
+            ))}
             {pendingPdfs.map((f, i) => (
               <div key={i} className="flex items-center gap-1.5 bg-primary-bg rounded-lg px-2 py-1 text-xs">
                 <FileText size={12} className="text-primary" />{f.name.length > 12 ? f.name.substring(0, 12) + "…" : f.name}
@@ -444,7 +476,7 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
         )}
 
         {/* Zone de saisie */}
-        <div className="shrink-0 bg-secondary-bg border-t border-alternate px-4 py-3">
+        <div className="shrink-0 bg-secondary-bg border-t border-alternate px-4 pt-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
           <div className="flex items-end gap-2">
             {/* Bouton pièces jointes */}
             <div className="flex gap-1 shrink-0">
@@ -455,11 +487,15 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
                 <Paperclip size={18} />
               </button>
             </div>
-            <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={e => { setPendingImages(p => [...p, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-            <input ref={pdfInputRef} type="file" accept="application/pdf,video/*" multiple className="hidden" onChange={e => {
+            <input ref={imageInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={e => {
+              const files = Array.from(e.target.files ?? []);
+              setPendingImages(p => [...p, ...files.filter(f => f.type.startsWith("image/"))]);
+              setPendingVideos(p => [...p, ...files.filter(f => f.type.startsWith("video/"))]);
+              e.target.value = "";
+            }} />
+            <input ref={pdfInputRef} type="file" accept="application/pdf" multiple className="hidden" onChange={e => {
               const files = Array.from(e.target.files ?? []);
               setPendingPdfs(p => [...p, ...files.filter(f => f.type === "application/pdf")]);
-              setPendingVideos(p => [...p, ...files.filter(f => f.type.startsWith("video/"))]);
               e.target.value = "";
             }} />
 
@@ -479,8 +515,6 @@ export default function DiscussionPage({ params }: { params: { id: string } }) {
           </div>
           <p className="text-[10px] text-secondary-text mt-1 text-center">Entrée pour envoyer · Maj+Entrée pour saut de ligne</p>
         </div>
-        {/* Spacer pour la BottomNav mobile (h-16 = 64px = hauteur BottomNav) */}
-        <div className="h-16 shrink-0 lg:hidden bg-secondary-bg" />
       </div>
 
       {/* Panneau participants */}

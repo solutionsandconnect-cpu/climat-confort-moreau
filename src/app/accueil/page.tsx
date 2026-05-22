@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin } from "@/store/authStore";
 import {
@@ -13,18 +14,34 @@ import {
   getPlanningCountsByRange,
   type PlanningItem,
 } from "@/lib/planningService";
-import { updateDoc, doc } from "firebase/firestore";
+import { getDocs, getDoc, collection, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import type { MapMarker } from "@/components/ui/MapInterventions";
+
+const TECH_COLOR_PALETTE: MapMarker["color"][] = [
+  "primary", "green", "orange", "teal", "purple", "pink", "indigo", "amber", "red",
+];
+
+const TECH_DOT_HEX: Record<NonNullable<MapMarker["color"]>, string> = {
+  primary: "#3b82f6", green: "#22c55e", orange: "#f97316", red: "#ef4444",
+  teal: "#14b8a6", purple: "#a855f7", pink: "#ec4899", indigo: "#6366f1", amber: "#f59e0b",
+};
+
+const MapInterventions = dynamic(
+  () => import("@/components/ui/MapInterventions").then(m => m.MapInterventions),
+  { ssr: false }
+);
 import {
   format, addDays, startOfWeek, isSameDay, isToday,
   startOfMonth, endOfMonth, addMonths, eachDayOfInterval, getDay,
 } from "date-fns";
 import { fr } from "date-fns/locale";
 import { cn, getInitials } from "@/lib/utils";
+import { NavButton } from "@/components/ui/NavButton";
 import { LoadingPage, EmptyState, Spinner } from "@/components/ui";
 import {
   ChevronLeft, ChevronRight, Clock, User, Trash2,
-  Calendar, AlertCircle, LogOut, BookOpen, Users, UsersRound, CalendarPlus,
+  Calendar, AlertCircle, LogOut, BookOpen, Users, UsersRound, CalendarPlus, MapPin,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -35,18 +52,23 @@ type ViewMode = "week" | "month";
 // ============================================
 
 function PlanningCard({
-  item, canDelete, onDelete, onClick,
+  item, canDelete, onDelete, onClick, techColor, address,
 }: {
   item: PlanningItem;
   canDelete: boolean;
   onDelete: () => void;
   onClick: () => void;
+  techColor?: MapMarker["color"];
+  address?: string;
 }) {
   const heureDebut = item.heureRdv ? format(item.heureRdv, "HH:mm") : "—";
   const heureFin = item.heureFinRdv ? format(item.heureFinRdv, "HH:mm") : "—";
 
   return (
-    <div className="card overflow-hidden hover:shadow-card-hover transition-shadow duration-200">
+    <div
+      className="card overflow-hidden hover:shadow-card-hover transition-shadow duration-200 cursor-pointer"
+      onClick={onClick}
+    >
       <div className="h-1 bg-primary" />
       <div className="p-4">
         <div className="flex items-center justify-between mb-3">
@@ -55,7 +77,8 @@ function PlanningCard({
               <Clock size={13} />
               <span className="text-sm font-bold">{heureDebut} – {heureFin}</span>
             </div>
-            {item.statutRdv && (
+            {/* Statut uniquement quand un tech est assigné */}
+            {item.technicienNom && item.statutRdv && (
               <span className={cn(
                 "badge border",
                 item.statutRdv === "Réalisé" ? "bg-green-100 text-green-800 border-green-200"
@@ -76,24 +99,44 @@ function PlanningCard({
             </button>
           )}
         </div>
-        <div
-          className="bg-primary-bg rounded-lg p-3 mb-3 cursor-pointer hover:bg-alternate/60 transition-colors"
-          onClick={onClick}
-        >
+        <div className="bg-primary-bg rounded-lg p-3 mb-3">
           <p className="text-sm text-primary-text leading-relaxed">
             {item.descriptifTravaux || (
               <span className="text-secondary-text italic">Descriptif non indiqué</span>
             )}
           </p>
         </div>
-        {item.technicienNom && (
-          <div className="flex items-center gap-2">
+        {address && (
+          <div className="flex items-center gap-1.5 text-xs text-secondary-text mb-2">
+            <MapPin size={11} className="shrink-0" />
+            <span className="truncate">{address}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {item.technicienNom ? (
             <div className="flex items-center gap-2 bg-secondary/10 text-secondary-600 px-3 py-1.5 rounded-lg text-xs font-medium">
+              {techColor && (
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: TECH_DOT_HEX[techColor] }}
+                  title="Couleur sur la carte"
+                />
+              )}
               <User size={13} />
               <span>{item.technicienNom}</span>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="flex items-center gap-1.5 bg-red-100 text-red-700 px-3 py-1.5 rounded-lg text-xs font-medium border border-red-200">
+              <User size={13} />
+              <span>Non assigné</span>
+            </div>
+          )}
+          {address && (
+            <div onClick={e => e.stopPropagation()}>
+              <NavButton adresse={address} label="Naviguer" />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -109,12 +152,14 @@ function WeekCalendar({
   weekStart,
   onWeekStartChange,
   countsByDate,
+  unassignedDates,
 }: {
   selectedDate: Date;
   onSelectDate: (d: Date) => void;
   weekStart: Date;
   onWeekStartChange: (d: Date) => void;
   countsByDate: Record<string, number>;
+  unassignedDates: Set<string>;
 }) {
   // Resynchronise la semaine quand on revient à aujourd'hui
   useEffect(() => {
@@ -149,13 +194,15 @@ function WeekCalendar({
         {days.map((day, i) => {
           const isSelected = isSameDay(day, selectedDate);
           const isTodayDay = isToday(day);
-          const count = countsByDate[format(day, "yyyy-MM-dd")] ?? 0;
+          const dayKey = format(day, "yyyy-MM-dd");
+          const count = countsByDate[dayKey] ?? 0;
+          const hasUnassigned = unassignedDates.has(dayKey);
           return (
             <button
               key={i}
               onClick={() => onSelectDate(day)}
               className={cn(
-                "flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl transition-all duration-200",
+                "relative flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl transition-all duration-200",
                 isSelected ? "bg-primary text-white shadow-sm"
                   : isTodayDay ? "bg-secondary/15 text-secondary-600"
                   : "hover:bg-primary-bg text-secondary-text hover:text-primary-text"
@@ -175,6 +222,12 @@ function WeekCalendar({
               ) : (
                 <span className="h-4" />
               )}
+              {hasUnassigned && (
+                <span className={cn(
+                  "absolute top-1 right-1 w-2 h-2 rounded-full border",
+                  isSelected ? "bg-red-300 border-white/50" : "bg-red-500 border-white"
+                )} title="Intervention(s) sans technicien" />
+              )}
             </button>
           );
         })}
@@ -193,12 +246,14 @@ function MonthCalendar({
   monthStart,
   onMonthStartChange,
   countsByDate,
+  unassignedDates,
 }: {
   selectedDate: Date;
   onSelectDate: (d: Date) => void;
   monthStart: Date;
   onMonthStartChange: (d: Date) => void;
   countsByDate: Record<string, number>;
+  unassignedDates: Set<string>;
 }) {
   // Resynchronise le mois quand on revient à aujourd'hui
   useEffect(() => {
@@ -249,7 +304,9 @@ function MonthCalendar({
         {days.map((day, i) => {
           const isSelected = isSameDay(day, selectedDate);
           const isTodayDay = isToday(day);
-          const count = countsByDate[format(day, "yyyy-MM-dd")] ?? 0;
+          const dayKey = format(day, "yyyy-MM-dd");
+          const count = countsByDate[dayKey] ?? 0;
+          const hasUnassigned = unassignedDates.has(dayKey);
           return (
             <button
               key={i}
@@ -264,11 +321,17 @@ function MonthCalendar({
               {format(day, "d")}
               {count > 0 && (
                 <span className={cn(
-                  "absolute top-0.5 right-0.5 min-w-[13px] h-[13px] rounded-full text-[8px] font-bold flex items-center justify-center px-0.5 leading-none",
-                  isSelected ? "bg-white/30 text-white" : "bg-primary text-white"
+                  "absolute top-0.5 right-0.5 min-w-[16px] h-4 rounded-full text-[9px] font-bold flex items-center justify-center px-0.5 leading-none border",
+                  isSelected ? "bg-white/30 text-white border-white/30" : "bg-primary text-white border-primary"
                 )}>
                   {count}
                 </span>
+              )}
+              {hasUnassigned && (
+                <span className={cn(
+                  "absolute bottom-0.5 left-0.5 w-2.5 h-2.5 rounded-full border-2",
+                  isSelected ? "bg-red-300 border-white/60" : "bg-red-500 border-white"
+                )} title="Intervention(s) sans technicien" />
               )}
             </button>
           );
@@ -284,7 +347,7 @@ function MonthCalendar({
 
 export default function AccueilPage() {
   const router = useRouter();
-  const { userApp, firebaseUser, setNotificationsNonLues, logout, journalInterneNonLu } = useAuthStore();
+  const { userApp, firebaseUser, logout, journalInterneNonLu } = useAuthStore();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("week");
@@ -295,6 +358,12 @@ export default function AccueilPage() {
   const [plannings, setPlannings] = useState<PlanningItem[]>([]);
   const [loadingPlannings, setLoadingPlannings] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [availableUsers, setAvailableUsers] = useState<{ id: string; displayName: string }[]>([]);
+  const [mapMarkers, setMapMarkers] = useState<MapMarker[]>([]);
+  const [techColors, setTechColors] = useState<Map<string, MapMarker["color"]>>(new Map());
+  const [unassignedDates, setUnassignedDates] = useState<Set<string>>(new Set());
+  const [addressByPlanningId, setAddressByPlanningId] = useState<Map<string, string>>(new Map());
 
   const canSeeAll =
     userApp?.roleapp === "Admin" ||
@@ -303,19 +372,44 @@ export default function AccueilPage() {
     userApp?.type === "Service SAV / Expertises" ||
     userApp?.type === "Bureau Administratif";
 
+  const canSelectUser =
+    userApp?.roleapp === "Admin" ||
+    userApp?.roleapp === "SuperAdmin" ||
+    userApp?.service === "Comptabilité" ||
+    userApp?.service === "RH";
+
+  // Charger la liste des utilisateurs pour le sélecteur
   useEffect(() => {
-    if (firebaseUser) {
-      const userRef = doc(db, "usersapp", firebaseUser.uid);
-      updateDoc(userRef, { last_login: new Date() }).catch(() => {});
-    }
-  }, [firebaseUser]);
+    if (!canSelectUser) return;
+    getDocs(query(collection(db, "usersapp"), where("actif", "==", true)))
+      .then(snap => {
+        const users = snap.docs
+          .map(d => ({ id: d.id, displayName: (d.data().display_name as string) ?? `${d.data().prenom ?? ""} ${d.data().nom ?? ""}`.trim() }))
+          .filter(u => u.displayName.trim())
+          .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
+        setAvailableUsers(users);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canSelectUser]);
 
   // Chargement des counts pour les badges du calendrier
   useEffect(() => {
     const start = viewMode === "week" ? weekStart : monthStart;
     const end = viewMode === "week" ? addDays(weekStart, 6) : endOfMonth(monthStart);
-    getPlanningCountsByRange(start, end).then(setCountsByDate).catch(() => {});
-  }, [viewMode, weekStart, monthStart]);
+    // Utilisateurs sans accès global → compter uniquement leurs propres interventions
+    const filterUserId = canSelectUser
+      ? selectedUserId
+      : (!canSeeAll ? (firebaseUser?.uid ?? null) : null);
+    getPlanningCountsByRange(start, end, filterUserId)
+      .then(({ counts, unassignedDates: ud }) => {
+        setCountsByDate(counts);
+        // Le point rouge "non assigné" ne concerne que les admins/conducteurs
+        setUnassignedDates((canSeeAll || canSelectUser) ? ud : new Set());
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, weekStart, monthStart, canSelectUser, selectedUserId]);
 
   useEffect(() => {
     setLoadingPlannings(true);
@@ -329,14 +423,78 @@ export default function AccueilPage() {
           return item;
         })
       );
-      const filtered = canSeeAll
-        ? withNames
-        : withNames.filter((p) => p.refUsers?.id === firebaseUser?.uid);
+      const filtered = selectedUserId && canSelectUser
+        ? withNames.filter((p) => p.refUsers?.id === selectedUserId)
+        : (canSeeAll || canSelectUser)
+          ? withNames
+          : withNames.filter((p) => p.refUsers?.id === firebaseUser?.uid);
       setPlannings(filtered);
       setLoadingPlannings(false);
+
+      // Résoudre les adresses pour la carte — triées par heure, colorées par technicien
+      const sorted = [...filtered].sort((a, b) => (a.heureRdv?.getTime() ?? 0) - (b.heureRdv?.getTime() ?? 0));
+      const resolved = await Promise.all(sorted.map(async (item) => {
+        try {
+          if (!item.logementRef) return null;
+          const logSnap = await getDoc(item.logementRef);
+          if (!logSnap.exists()) return null;
+          const batRef = logSnap.data().batiment_ref;
+          if (!batRef) return null;
+          const batSnap = await getDoc(batRef);
+          if (!batSnap.exists()) return null;
+          const batData = batSnap.data();
+          const adresse = (batData.adresse_batiment as string | undefined) ?? (batData.adresse as string | undefined);
+          if (!adresse) return null;
+          return { item, adresse, nomBat: (batData.nom_batiment as string | undefined) ?? adresse };
+        } catch { return null; }
+      }));
+      const techColorIdx = new Map<string, number>();
+      const newTechColors = new Map<string, MapMarker["color"]>();
+      let nextColorIdx = 0;
+
+      // Première passe : attribuer les couleurs aux techniciens dans l'ordre d'apparition
+      for (const r of resolved) {
+        if (!r) continue;
+        const techId = r.item.refUsers?.id;
+        if (techId && !techColorIdx.has(techId)) {
+          techColorIdx.set(techId, nextColorIdx++);
+          newTechColors.set(techId, TECH_COLOR_PALETTE[techColorIdx.get(techId)! % TECH_COLOR_PALETTE.length]);
+        }
+      }
+
+      // Deuxième passe : construire les marqueurs en groupant par adresse
+      const addressSeen = new Map<string, MapMarker>();
+      const markers: MapMarker[] = [];
+      let globalOrder = 0;
+
+      for (const r of resolved) {
+        if (!r) continue;
+        if (addressSeen.has(r.adresse)) {
+          // Incrémenter le compteur pour signaler plusieurs interventions à la même adresse
+          const existing = addressSeen.get(r.adresse)!;
+          existing.stackCount = (existing.stackCount ?? 1) + 1;
+        } else {
+          globalOrder++;
+          const techId = r.item.refUsers?.id;
+          const colorIdx = techId ? (techColorIdx.get(techId) ?? 0) : 0;
+          const color = TECH_COLOR_PALETTE[colorIdx % TECH_COLOR_PALETTE.length];
+          const marker: MapMarker = { id: r.item.id, label: r.nomBat, address: r.adresse, color, number: globalOrder };
+          addressSeen.set(r.adresse, marker);
+          markers.push(marker);
+        }
+      }
+      // Map planningId → adresse pour les boutons de navigation
+      const addrMap = new Map<string, string>();
+      for (const r of resolved) {
+        if (r) addrMap.set(r.item.id, r.adresse);
+      }
+      setMapMarkers(markers);
+      setTechColors(newTechColors);
+      setAddressByPlanningId(addrMap);
     });
     return () => unsub();
-  }, [selectedDate, canSeeAll, firebaseUser?.uid]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, canSeeAll, canSelectUser, selectedUserId, firebaseUser?.uid]);
 
   const handleLogout = async () => {
     setShowLogout(false);
@@ -489,6 +647,7 @@ export default function AccueilPage() {
             weekStart={weekStart}
             onWeekStartChange={setWeekStart}
             countsByDate={countsByDate}
+            unassignedDates={unassignedDates}
           />
         ) : (
           <MonthCalendar
@@ -497,11 +656,12 @@ export default function AccueilPage() {
             monthStart={monthStart}
             onMonthStartChange={setMonthStart}
             countsByDate={countsByDate}
+            unassignedDates={unassignedDates}
           />
         )}
 
         {/* Séparateur */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-3">
           <Calendar size={16} className="text-primary shrink-0" />
           <h2 className="text-sm font-bold text-primary-text">
             Interventions du jour
@@ -513,6 +673,24 @@ export default function AccueilPage() {
             </span>
           )}
         </div>
+
+        {/* Sélecteur utilisateur (admin / Comptabilité / RH) */}
+        {canSelectUser && (
+          <div className="flex items-center gap-2 mb-4">
+            <User size={13} className="text-secondary-text shrink-0" />
+            <span className="text-xs text-secondary-text font-medium whitespace-nowrap">Planning de :</span>
+            <select
+              value={selectedUserId ?? ""}
+              onChange={e => setSelectedUserId(e.target.value || null)}
+              className="flex-1 text-xs rounded-lg border border-alternate bg-secondary-bg px-2.5 py-1.5 text-primary-text font-medium focus:outline-none focus:border-primary/50 min-w-0"
+            >
+              <option value="">Tous les utilisateurs</option>
+              {availableUsers.map(u => (
+                <option key={u.id} value={u.id}>{u.displayName}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Liste des interventions */}
         {loadingPlannings ? (
@@ -539,14 +717,31 @@ export default function AccueilPage() {
                   canDelete={isAdmin(userApp)}
                   onDelete={() => handleDelete(item.id)}
                   onClick={() => router.push(`/interventions/${item.id}`)}
+                  techColor={item.refUsers?.id ? techColors.get(item.refUsers.id) : undefined}
+                  address={addressByPlanningId.get(item.id)}
                 />
               </div>
             ))}
           </div>
         )}
 
+        {/* Carte des interventions du jour */}
+        {mapMarkers.length > 0 && (
+          <div className="mt-5">
+            <div className="flex items-center gap-3 mb-3">
+              <Calendar size={16} className="text-primary shrink-0" />
+              <h2 className="text-sm font-bold text-primary-text flex items-center gap-1.5">
+                Carte du jour
+                <span className="text-[9px] bg-violet-200 text-violet-800 px-1.5 py-0.5 rounded font-bold">BONUS</span>
+              </h2>
+              <div className="flex-1 h-px bg-alternate" />
+            </div>
+            <MapInterventions markers={mapMarkers} height="260px" />
+          </div>
+        )}
+
         {/* Info rôle limité */}
-        {!canSeeAll && (
+        {!canSeeAll && !canSelectUser && (
           <div className="mt-6 flex items-start gap-2.5 p-3.5 rounded-lg bg-blue-50 border border-blue-200">
             <AlertCircle size={16} className="text-blue-500 mt-0.5 shrink-0" />
             <p className="text-xs text-blue-700">
