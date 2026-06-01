@@ -295,7 +295,7 @@ export default function FicheChantierPage({
 
   return (
     <AppShell>
-      <div className="animate-page-enter max-w-4xl mx-auto px-4 lg:px-6 py-5">
+      <div className="animate-page-enter px-4 lg:px-6 py-5">
 
         {/* ===== HEADER ===== */}
         <div className="flex items-center gap-3 mb-5">

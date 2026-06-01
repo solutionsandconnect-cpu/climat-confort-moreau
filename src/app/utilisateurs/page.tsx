@@ -33,7 +33,7 @@ function RoleBadge({ role }: { role?: string }) {
   return <span className={cn("badge border text-xs", cfg)}>{role ?? "Utilisateur"}</span>;
 }
 
-async function impersonateUser(targetUid: string): Promise<void> {
+async function impersonateUser(targetUid: string, targetName: string, adminName: string): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error("Non authentifié");
   const idToken = await currentUser.getIdToken();
@@ -44,10 +44,11 @@ async function impersonateUser(targetUid: string): Promise<void> {
   });
   if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Erreur"); }
   const { token } = await res.json();
-  window.open(`/admin-access?token=${encodeURIComponent(token)}`, "_blank", "noopener,noreferrer");
+  const params = new URLSearchParams({ token, targetName, adminName });
+  window.open(`/admin-access?${params.toString()}`, "_blank", "noopener,noreferrer");
 }
 
-function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user: UserApp; canEdit: boolean; canToggle: boolean; canImpersonate: boolean; onDelete: () => void; }) {
+function UserCard({ user, canEdit, canToggle, canImpersonate, adminDisplayName, onDelete }: { user: UserApp; canEdit: boolean; canToggle: boolean; canImpersonate: boolean; adminDisplayName: string; onDelete: () => void; }) {
   const [expanded, setExpanded] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -147,7 +148,7 @@ function UserCard({ user, canEdit, canToggle, canImpersonate, onDelete }: { user
                 onClick={async e => {
                   e.stopPropagation();
                   setImpersonating(true);
-                  try { await impersonateUser(user.uid); }
+                  try { await impersonateUser(user.uid, user.displayName || `${user.prenom} ${user.nom}`, adminDisplayName); }
                   catch (err: unknown) { toast.error((err as Error).message || "Erreur"); }
                   finally { setImpersonating(false); }
                 }}
@@ -364,7 +365,7 @@ export default function UtilisateursPage() {
 
   return (
     <AppShell>
-      <div className="animate-page-enter max-w-4xl mx-auto px-4 lg:px-6 py-5">
+      <div className="animate-page-enter px-4 lg:px-6 py-5">
         <div className="flex items-center justify-between mb-5">
           <div><h1 className="text-2xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Utilisateurs</h1><p className="text-sm text-secondary-text mt-0.5">{users.length} comptes · {users.filter(u => u.actif).length} actifs</p></div>
           {isAdmin(userApp) && <button onClick={() => router.push("/utilisateurs/creer")} className="btn-primary flex items-center gap-2"><Plus size={16} /><span className="hidden sm:inline">Créer un compte</span></button>}
@@ -403,6 +404,7 @@ export default function UtilisateursPage() {
               canEdit={isAdmin(userApp)}
               canToggle={isAdmin(userApp)}
               canImpersonate={isAdmin(userApp) && u.roleapp !== "Admin" && u.id !== userApp?.id}
+              adminDisplayName={userApp?.displayName ?? "Admin"}
               onDelete={() => {}}
             />
           ))}</div>

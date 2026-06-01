@@ -161,7 +161,7 @@ export default function NotificationsPage() {
 
   return (
     <AppShell>
-      <div className="animate-page-enter max-w-2xl mx-auto px-4 lg:px-6 py-5">
+      <div className="animate-page-enter px-4 lg:px-6 py-5">
 
         <div className="flex items-center justify-between mb-5">
           <div>

@@ -63,7 +63,7 @@ export default function EditActeurPage({ params }: { params: { id: string } }) {
 
   return (
     <AppShell>
-      <div className="animate-page-enter max-w-xl mx-auto px-4 lg:px-6 py-5">
+      <div className="animate-page-enter px-4 lg:px-6 py-5">
         <div className="flex items-center gap-3 mb-5">
           <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-alternate text-secondary-text hover:text-primary"><ArrowLeft size={20} /></button>
           <h1 className="text-xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Modifier l&apos;acteur</h1>

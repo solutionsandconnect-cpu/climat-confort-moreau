@@ -16,12 +16,15 @@ function AdminAccessContent() {
 
   useEffect(() => {
     const token = searchParams.get("token");
+    const targetName = searchParams.get("targetName") ?? "Utilisateur";
+    const adminName = searchParams.get("adminName") ?? "Admin";
     if (!token) { setError("Token d'accès manquant."); return; }
 
     (async () => {
       try {
         const cred = await signInWithCustomToken(auth, token);
         const userApp = await getUserApp(cred.user.uid);
+        localStorage.setItem("tc_impersonation", JSON.stringify({ adminName, targetName }));
         useAuthStore.setState({ firebaseUser: cred.user, userApp, loading: false, error: null, isImpersonating: true });
         router.replace("/accueil");
       } catch (err) {

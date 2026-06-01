@@ -4,8 +4,9 @@
 // Layout protégé : sidebar + contenu + nav mobile
 // À utiliser pour toutes les pages qui nécessitent d'être connecté
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { MonitorSmartphone, X } from "lucide-react";
 import { collection, query, where, onSnapshot, doc, getDocs, updateDoc, serverTimestamp, orderBy, limit } from "firebase/firestore";
 import type { DocumentReference } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -25,8 +26,9 @@ interface AppShellProps {
 }
 
 export function AppShell({ children, className, noPadBottom, hideNav }: AppShellProps) {
-  const { firebaseUser, userApp, initialized, isImpersonating, setMessagesNonLus, setNotificationsNonLues, setJournalInterneNonLu } = useAuthStore();
+  const { firebaseUser, userApp, initialized, isImpersonating, logout, setMessagesNonLus, setNotificationsNonLues, setJournalInterneNonLu } = useAuthStore();
   const router = useRouter();
+  const [impersonationInfo, setImpersonationInfo] = useState<{ adminName: string; targetName: string } | null>(null);
 
   const msgDestCount = useRef(0);
   const msgCreatCount = useRef(0);
@@ -37,6 +39,19 @@ export function AppShell({ children, className, noPadBottom, hideNav }: AppShell
       router.replace("/login");
     }
   }, [firebaseUser, initialized, router]);
+
+  // Lecture et persistance du mode impersonation depuis localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("tc_impersonation");
+      if (raw) {
+        const data = JSON.parse(raw) as { adminName: string; targetName: string };
+        setImpersonationInfo(data);
+        if (!isImpersonating) useAuthStore.setState({ isImpersonating: true });
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Subscribe to unread messages (ancien format 1-à-1 + nouveau format groupes)
   useEffect(() => {
@@ -149,6 +164,26 @@ export function AppShell({ children, className, noPadBottom, hideNav }: AppShell
           className
         )}
       >
+        {/* Bannière impersonation */}
+        {impersonationInfo && (
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs font-medium">
+            <MonitorSmartphone size={14} className="shrink-0 text-amber-600" />
+            <span className="flex-1">
+              Session de <span className="font-bold">{impersonationInfo.adminName}</span> — vous consultez le compte de <span className="font-bold">{impersonationInfo.targetName}</span>
+            </span>
+            <button
+              onClick={async () => {
+                localStorage.removeItem("tc_impersonation");
+                setImpersonationInfo(null);
+                await logout();
+                router.replace("/login");
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 font-semibold transition-colors shrink-0"
+            >
+              <X size={12} /> Quitter
+            </button>
+          </div>
+        )}
         {children}
       </main>
 

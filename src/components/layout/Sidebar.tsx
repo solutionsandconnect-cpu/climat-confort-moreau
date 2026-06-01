@@ -9,7 +9,7 @@ import type { UserApp } from "@/types";
 import { cn, getInitials } from "@/lib/utils";
 import {
   LayoutDashboard, Home, Users, UsersRound, FileText,
-  BookOpen, MessageCircle, Bell, LogOut, ChevronDown, CalendarPlus,
+  BookOpen, MessageCircle, Bell, LogOut, ChevronDown, CalendarPlus, ShieldCheck,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
@@ -32,6 +32,7 @@ export function Sidebar() {
     { label: "Tableau de bord", icon: <LayoutDashboard size={18} />, href: "/dashboard", page: "DashBoard", visible: canViewDashboard },
     { label: "Affecter un planning", icon: <CalendarPlus size={18} />, href: "/affectation-planning", page: "Affecter planning", adminOnly: true },
     { label: "Liste utilisateurs", icon: <Users size={18} />, href: "/utilisateurs", page: "Liste utilisateurs", adminOnly: true },
+    { label: "Droits d'accès", icon: <ShieldCheck size={18} />, href: "/droits", page: "Droits", adminOnly: true },
     { label: "Acteurs chantiers", icon: <UsersRound size={18} />, href: "/acteurs", page: "Acteurs chantiers", adminOnly: true },
     { label: "Documents", icon: <FileText size={18} />, href: "/feuilles-heures", page: "Fiches heures" },
     { label: "Journal interne", icon: <BookOpen size={18} />, href: "/journal-interne", page: "Journal interne", badge: journalInterneNonLu },

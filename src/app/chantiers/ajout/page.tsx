@@ -63,7 +63,7 @@ export default function AjoutChantierPage() {
 
   return (
     <AppShell>
-      <div className="animate-page-enter max-w-xl mx-auto px-4 lg:px-6 py-5">
+      <div className="animate-page-enter px-4 lg:px-6 py-5">
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
           <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-alternate text-secondary-text hover:text-primary transition-all">

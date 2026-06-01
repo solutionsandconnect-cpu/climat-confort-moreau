@@ -859,7 +859,7 @@ export default function DetailsInterventionPage({ params }: { params: { id: stri
 
   return (
     <AppShell>
-      <div className="animate-page-enter max-w-2xl mx-auto px-4 lg:px-6 py-5 overflow-x-hidden">
+      <div className="animate-page-enter px-4 lg:px-6 py-5 overflow-x-hidden">
 
         {/* Header */}
         <div className="flex items-start gap-2 mb-5 flex-wrap">

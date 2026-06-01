@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canSeeAll as canSeeAllFn } from "@/store/authStore";
 import {
   subscribePlanningByDate,
   deletePlanning,
@@ -365,12 +365,7 @@ export default function AccueilPage() {
   const [unassignedDates, setUnassignedDates] = useState<Set<string>>(new Set());
   const [addressByPlanningId, setAddressByPlanningId] = useState<Map<string, string>>(new Map());
 
-  const canSeeAll =
-    userApp?.roleapp === "Admin" ||
-    userApp?.roleapp === "SuperAdmin" ||
-    userApp?.type === "Conducteur de Travaux" ||
-    userApp?.type === "Service SAV / Expertises" ||
-    userApp?.type === "Bureau Administratif";
+  const canSeeAll = canSeeAllFn(userApp);
 
   const canSelectUser =
     userApp?.roleapp === "Admin" ||
@@ -522,7 +517,7 @@ export default function AccueilPage() {
 
   return (
     <AppShell>
-      <div className="animate-page-enter px-4 lg:px-6 py-5 max-w-3xl mx-auto">
+      <div className="animate-page-enter px-4 lg:px-6 py-5">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
