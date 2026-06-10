@@ -970,6 +970,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
 
   const handleSave = async () => {
     if (!nom.trim() || !prenom.trim()) { toast.error("Nom et prénom obligatoires"); return; }
+    if (categorie === "Fiche d'heures" && !typeFH) { toast.error("Veuillez sélectionner un type de fiche"); return; }
     if (!isNew && etat === "Validé" && categorie !== "Fiche de retour Travaux imprévus" && !isAdmin(userApp)) {
       const manquantes: string[] = [];
       if (!sigUser) manquantes.push("signature salarié");
@@ -1332,8 +1333,8 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   const readOnlySection2 = isValidated || (!admin && userApp?.service !== "Comptabilité");
   // Éditable : En attente ou Refusé (le salarié peut corriger), toujours éditable pour admin/compta
   const readOnly = isValidated || (!admin && !canEditPostSend && (!isCreator || (etat !== "En attente" && etat !== "Refusé")));
-  // Paramètres (type, dates, salarié) : locked for everyone once created
-  const paramLocked = !isNew;
+  // Paramètres (type, dates, salarié) : locked after creation, sauf pour le créateur en attente/refusé
+  const paramLocked = !isNew && !admin && !(isCreator && (etat === "En attente" || etat === "Refusé"));
   // readOnlyData : plus restrictif — Comptabilité ne peut pas modifier les données (heures, signatures, etc.)
   const readOnlyData = isValidated || (!admin && (!isCreator || (etat !== "En attente" && etat !== "Refusé")));
 
@@ -1492,7 +1493,10 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                 <Chips label="Type de fiche" value={typeFH} options={TYPES_FH} onChange={setTypeFH} req disabled={paramLocked} />
                 <div>
                   <label className="text-xs font-medium text-secondary-text">Mois</label>
-                  <input className="input-base mt-1" value={mois} onChange={e => setMois(e.target.value)} readOnly={paramLocked} placeholder="Ex: Janvier (voir si suppr champ)" />
+                  <select className="input-base mt-1" value={mois} onChange={e => setMois(e.target.value)} disabled={paramLocked}>
+                    <option value="">— Sélectionner —</option>
+                    {MOIS_FR.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
