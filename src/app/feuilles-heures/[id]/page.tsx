@@ -1382,7 +1382,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                   <Send size={10} />Envoyé
                 </span>
               )}
-              {!estSalarie && (
+              {(!estSalarie || etat === "Validé") && (
                 <button onClick={handleDownloadPdf} disabled={generatingPdf}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary-bg border border-alternate text-xs font-semibold text-secondary-text hover:text-primary hover:border-primary/40 transition-all">
                   {generatingPdf ? <><span className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin inline-block" />PDF…</> : <><Download size={13} />PDF</>}
@@ -1994,7 +1994,7 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                 {sending ? "Envoi…" : etat === "Refusé" ? "Renvoyer après correction" : "Envoyer"}
               </button>
             )}
-            {!isNew && (
+            {!isNew && (!estSalarie || etat === "Validé") && (
               <button onClick={handleDownloadPdf} disabled={generatingPdf}
                 className="w-full py-3 flex items-center justify-center gap-2 font-semibold text-sm rounded-xl border-2 border-alternate text-secondary-text hover:text-primary hover:border-primary/40 transition-all disabled:opacity-50">
                 {generatingPdf
