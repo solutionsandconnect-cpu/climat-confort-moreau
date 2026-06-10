@@ -1,14 +1,14 @@
 "use client";
 export const dynamic = "force-dynamic";
-// src/app/batiments/ajout/page.tsx — avec autocomplétion adresse (Nominatim/OpenStreetMap)
+// src/app/batiments/[id]/edit/page.tsx — Modification d'un bâtiment
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
-import { doc, DocumentReference } from "firebase/firestore";
+import { doc, getDoc, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
-import { createBatimentFull } from "@/lib/formsService";
+import { updateBatimentFull } from "@/lib/formsService";
 import { Spinner } from "@/components/ui";
 import { ArrowLeft, Building2, Check, MapPin, Key, Calendar, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,22 +23,23 @@ interface AdresseSuggestion {
   context?: string;
 }
 
-function AjoutBatimentPageContent() {
+function EditBatimentPageContent({ batimentId }: { batimentId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { firebaseUser, userApp } = useAuthStore();
+  const { userApp } = useAuthStore();
   const chantierId = searchParams.get("chantier");
 
+  const [loading, setLoading] = useState(true);
   const [nom, setNom] = useState("");
   const [rue, setRue] = useState("");
   const [cp, setCp] = useState("");
   const [ville, setVille] = useState("");
   const [codeInterphone, setCodeInterphone] = useState("");
   const [infosAcces, setInfosAcces] = useState("");
-  const [dateReception, setDateReception] = useState(() => new Date().toISOString().split("T")[0]);
+  const [dateReception, setDateReception] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Autocomplete adresse — API adresse.data.gouv.fr (officielle France)
+  // Autocomplete adresse
   const [adresseQuery, setAdresseQuery] = useState("");
   const [suggestions, setSuggestions] = useState<AdresseSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -46,12 +47,35 @@ function AjoutBatimentPageContent() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
+    getDoc(doc(db, "Batiment", batimentId)).then(snap => {
+      if (!snap.exists()) { toast.error("Bâtiment introuvable"); router.back(); return; }
+      const d = snap.data();
+      setNom(d.nom_batiment ?? "");
+      setRue(d.rue_batiment ?? "");
+      setCp(d.code_postale_batiment ?? "");
+      setVille(d.ville_batiment ?? "");
+      setCodeInterphone(d.code_interphone ?? "");
+      setInfosAcces(d.informations_acces ?? "");
+      if (d.date_reception) {
+        const ts = d.date_reception as Timestamp;
+        setDateReception(ts.toDate().toISOString().split("T")[0]);
+      }
+      const rueVal = d.rue_batiment ?? "";
+      const cpVal = d.code_postale_batiment ?? "";
+      const villeVal = d.ville_batiment ?? "";
+      if (rueVal || cpVal || villeVal) {
+        setAdresseQuery([rueVal, cpVal, villeVal].filter(Boolean).join(", "));
+      }
+      setLoading(false);
+    });
+  }, [batimentId, router]);
+
+  useEffect(() => {
     if (adresseQuery.length < 3) { setSuggestions([]); setShowSuggestions(false); return; }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoadingSuggestions(true);
       try {
-        // API officielle française - très fiable, pas besoin de clé
         const res = await fetch(
           `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(adresseQuery)}&limit=6&autocomplete=1`
         );
@@ -82,30 +106,25 @@ function AjoutBatimentPageContent() {
     setShowSuggestions(false);
   };
 
+  if (loading) return <AppShell><div className="flex justify-center py-20"><Spinner size="lg" /></div></AppShell>;
   if (!isAdmin(userApp) && !canViewDashboard(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé.</div></AppShell>;
-  if (!chantierId) return <AppShell><div className="p-8 text-center">Chantier non spécifié.</div></AppShell>;
-
-  const returnTo = searchParams.get("returnTo");
 
   const handleSubmit = async () => {
     if (!nom.trim()) { toast.error("Le nom du bâtiment est obligatoire"); return; }
-    if (!firebaseUser) return;
     setSaving(true);
     try {
-      const newId = await createBatimentFull({
+      await updateBatimentFull(batimentId, {
         nomBatiment: nom, rue, codePostal: cp, ville,
         codeInterphone, informationsAcces: infosAcces,
-        dateReception: dateReception ? new Date(dateReception) : undefined,
-        operationRef: doc(db, "Operation", chantierId) as DocumentReference,
-        createParRef: doc(db, "usersapp", firebaseUser.uid) as DocumentReference,
+        dateReception: dateReception ? new Date(dateReception) : null,
       });
-      toast.success("Bâtiment créé !");
-      if (returnTo === "logement") {
-        router.replace(`/logements/ajout?chantier=${chantierId}&batimentId=${newId}`);
+      toast.success("Bâtiment mis à jour !");
+      if (chantierId) {
+        router.push(`/chantiers/${chantierId}`);
       } else {
-        router.replace(`/chantiers/${chantierId}`);
+        router.back();
       }
-    } catch (e) { console.error(e); toast.error("Erreur lors de la création"); }
+    } catch (e) { console.error(e); toast.error("Erreur lors de la mise à jour"); }
     finally { setSaving(false); }
   };
 
@@ -115,8 +134,8 @@ function AjoutBatimentPageContent() {
         <div className="flex items-center gap-3 mb-5">
           <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-alternate text-secondary-text hover:text-primary"><ArrowLeft size={20} /></button>
           <div>
-            <h1 className="text-xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Nouveau bâtiment</h1>
-            <p className="text-xs text-secondary-text">Ajout au chantier sélectionné</p>
+            <h1 className="text-xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Modifier le bâtiment</h1>
+            <p className="text-xs text-secondary-text">{nom}</p>
           </div>
         </div>
         <div className="flex justify-center mb-5">
@@ -136,8 +155,6 @@ function AjoutBatimentPageContent() {
               <MapPin size={14} className="text-secondary-text" />
               <p className="text-xs font-bold text-secondary-text uppercase tracking-wide">Adresse</p>
             </div>
-
-            {/* Champ de recherche d'adresse */}
             <div className="relative">
               <label className="text-xs font-medium text-secondary-text">Rechercher une adresse</label>
               <div className="relative mt-1">
@@ -149,7 +166,6 @@ function AjoutBatimentPageContent() {
                   {loadingSuggestions ? <Spinner size="sm" /> : <Search size={15} className="text-secondary-text" />}
                 </div>
               </div>
-              {/* Suggestions */}
               {showSuggestions && suggestions.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-secondary-bg border border-alternate rounded-xl shadow-lg overflow-hidden">
                   {suggestions.map((s, i) => (
@@ -165,9 +181,7 @@ function AjoutBatimentPageContent() {
                 </div>
               )}
             </div>
-
             <p className="text-xs text-secondary-text">Ou saisissez manuellement :</p>
-
             <div>
               <label className="text-xs font-medium text-secondary-text">Rue / Voie</label>
               <input className="input-base mt-1" value={rue} onChange={e => setRue(e.target.value)} placeholder="Ex: 12 rue de la Paix" />
@@ -211,7 +225,7 @@ function AjoutBatimentPageContent() {
 
           <button onClick={handleSubmit} disabled={saving || !nom.trim()} className="btn-primary w-full py-3 flex items-center justify-center gap-2">
             {saving ? <Spinner size="sm" /> : <Check size={16} />}
-            {saving ? "Création en cours…" : "Créer le bâtiment"}
+            {saving ? "Enregistrement…" : "Enregistrer les modifications"}
           </button>
         </div>
       </div>
@@ -219,10 +233,10 @@ function AjoutBatimentPageContent() {
   );
 }
 
-export default function AjoutBatimentPage() {
+export default function EditBatimentPage({ params }: { params: { id: string } }) {
   return (
     <Suspense fallback={<div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
-      <AjoutBatimentPageContent />
+      <EditBatimentPageContent batimentId={params.id} />
     </Suspense>
   );
 }

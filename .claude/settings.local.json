@@ -16,7 +16,9 @@
       "Bash(node -e ' *)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\teddy\\\\climat-confort-moreau-nextjs\\\\climat-confort-moreau\\\\src\" -Recurse -Directory)",
       "Bash(Select-Object -ExpandProperty FullName)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(New-Item -ItemType Directory -Path \"C:\\\\Users\\\\teddy\\\\climat-confort-moreau-nextjs\\\\climat-confort-moreau\\\\src\\\\app\\\\batiments\\\\[id]\\\\edit\" -Force)",
+      "Bash(Out-Null)"
     ]
   }
 }

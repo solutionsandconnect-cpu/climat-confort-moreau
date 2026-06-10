@@ -9,7 +9,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { doc, DocumentReference, collection, query, where, getDocs, addDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
 import { createLogement } from "@/lib/formsService";
 import { getBatimentsForOperation } from "@/lib/logementService";
 import type { Batiment } from "@/types";
@@ -102,7 +102,7 @@ function AjoutLogementPageContent() {
     finally { setSavingActeur(false); }
   };
 
-  if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé aux administrateurs.</div></AppShell>;
+  if (!isAdmin(userApp) && !canViewDashboard(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé aux administrateurs.</div></AppShell>;
   if (!chantierId) return <AppShell><div className="p-8 text-center">Chantier non spécifié.</div></AppShell>;
 
   const handleSubmit = async () => {

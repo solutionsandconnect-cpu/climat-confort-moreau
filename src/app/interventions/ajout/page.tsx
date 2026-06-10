@@ -11,7 +11,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { doc, getDoc, DocumentReference, addDoc, collection, getDocs, getCountFromServer, query, orderBy, limit, serverTimestamp, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
 import { Spinner } from "@/components/ui";
 import { cn, formatDate } from "@/lib/utils";
 import { ArrowLeft, Check, Clock, FileText, Euro, AlertCircle, Calendar } from "lucide-react";
@@ -29,7 +29,7 @@ interface PlanningQuitus {
 function AjoutInterventionPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { firebaseUser } = useAuthStore();
+  const { firebaseUser, userApp } = useAuthStore();
 
   const logementId = searchParams.get("logement");
   const chantierId = searchParams.get("chantier");
@@ -150,6 +150,7 @@ function AjoutInterventionPageContent() {
   };
 
   if (loading) return <AppShell><div className="flex justify-center py-20"><Spinner size="lg" /></div></AppShell>;
+  if (!isAdmin(userApp) && !canViewDashboard(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé.</div></AppShell>;
 
   return (
     <AppShell>

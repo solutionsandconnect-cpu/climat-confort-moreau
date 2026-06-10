@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
 import { createChantier, checkNumChantierExists } from "@/lib/chantierService";
 import { getConducteursTravaux } from "@/lib/chantierService";
 import type { UserApp } from "@/types";
@@ -31,7 +31,7 @@ export default function AjoutChantierPage() {
     getConducteursTravaux().then(setConducteurs);
   }, []);
 
-  if (!isAdmin(userApp)) {
+  if (!isAdmin(userApp) && !canViewDashboard(userApp)) {
     return <AppShell><div className="p-8 text-center text-secondary-text">Accès réservé aux administrateurs.</div></AppShell>;
   }
 

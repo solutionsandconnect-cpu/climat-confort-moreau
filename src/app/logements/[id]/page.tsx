@@ -11,7 +11,7 @@ import { ref as storageRef, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { arreterWorkflowByPlanning } from "@/lib/workflowRelanceService";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
 import { subscribePlanningByLogement, subscribeRelancesByLogement, type PlanningLogement, type RelanceLogement } from "@/lib/logementService";
 import type { Logement, Batiment } from "@/types";
 import { LISTE_ETAT_CHANTIER, LISTE_ETAT_FACTURATION, LISTE_ETAT_SIGNATURE, LISTE_ETAT_QUITUS } from "@/types";
@@ -502,7 +502,7 @@ export default function FicheLogementPage({ params }: { params: { id: string } }
                   <h2 className="text-sm font-bold text-primary-text">Interventions</h2>
                   <span className="text-xs text-secondary-text bg-alternate px-2 py-0.5 rounded-full">{plannings.length}</span>
                 </div>
-                {isAdmin(userApp) && (
+                {(isAdmin(userApp) || canViewDashboard(userApp)) && (
                   <button onClick={() => router.push(`/interventions/ajout?logement=${id}${opId ? `&chantier=${opId}` : ""}`)}
                     className="flex items-center gap-1.5 text-xs text-primary font-semibold">
                     <Plus size={14} />Ajouter

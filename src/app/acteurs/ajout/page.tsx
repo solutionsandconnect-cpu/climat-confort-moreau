@@ -7,7 +7,7 @@ import { useState } from "react";
 import { collection, addDoc, doc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
 import { Spinner } from "@/components/ui";
 import { AdresseSearch } from "@/components/ui/AdresseSearch";
 import { ArrowLeft, Check, Users } from "lucide-react";
@@ -30,7 +30,7 @@ function AjoutActeurPageContent() {
   const [obs, setObs] = useState("");
   const [saving, setSaving] = useState(false);
 
-  if (!isAdmin(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé.</div></AppShell>;
+  if (!isAdmin(userApp) && !canViewDashboard(userApp)) return <AppShell><div className="p-8 text-center">Accès réservé.</div></AppShell>;
 
   const handleSubmit = async () => {
     if (!nom.trim()) { toast.error("Le nom est obligatoire"); return; }
