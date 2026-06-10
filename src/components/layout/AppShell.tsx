@@ -6,10 +6,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { signInWithCustomToken } from "firebase/auth";
 import { MonitorSmartphone, X } from "lucide-react";
 import { collection, query, where, onSnapshot, doc, getDocs, updateDoc, serverTimestamp, orderBy, limit } from "firebase/firestore";
 import type { DocumentReference } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
 import { useAuthStore } from "@/store/authStore";
 import { subscribeNotificationsNonLues } from "@/lib/notifMessagerieService";
 import { registerPushToken, onForegroundMessage } from "@/lib/pushService";
@@ -45,7 +46,7 @@ export function AppShell({ children, className, noPadBottom, hideNav }: AppShell
     try {
       const raw = localStorage.getItem("tc_impersonation");
       if (raw) {
-        const data = JSON.parse(raw) as { adminName: string; targetName: string };
+        const data = JSON.parse(raw) as { adminName: string; targetName: string; adminToken: string };
         setImpersonationInfo(data);
         if (!isImpersonating) useAuthStore.setState({ isImpersonating: true });
       }
@@ -173,8 +174,19 @@ export function AppShell({ children, className, noPadBottom, hideNav }: AppShell
             </span>
             <button
               onClick={async () => {
+                const raw = localStorage.getItem("tc_impersonation");
+                const adminToken = raw ? (JSON.parse(raw) as { adminToken?: string }).adminToken : undefined;
                 localStorage.removeItem("tc_impersonation");
                 setImpersonationInfo(null);
+                if (adminToken) {
+                  try {
+                    await signInWithCustomToken(auth, adminToken);
+                    router.replace("/accueil");
+                    return;
+                  } catch {
+                    // token expiré (>1h) → déconnexion classique
+                  }
+                }
                 await logout();
                 router.replace("/login");
               }}

@@ -43,8 +43,8 @@ async function impersonateUser(targetUid: string, targetName: string, adminName:
     body: JSON.stringify({ targetUid }),
   });
   if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Erreur"); }
-  const { token } = await res.json();
-  const params = new URLSearchParams({ token, targetName, adminName });
+  const { token, adminToken } = await res.json();
+  const params = new URLSearchParams({ token, adminToken, targetName, adminName });
   window.open(`/admin-access?${params.toString()}`, "_blank", "noopener,noreferrer");
 }
 

@@ -30,11 +30,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const customToken = await getAdminAuth().createCustomToken(targetUid, {
-      impersonatedBy: decoded.uid,
-    });
+    const [customToken, adminCustomToken] = await Promise.all([
+      getAdminAuth().createCustomToken(targetUid, { impersonatedBy: decoded.uid }),
+      getAdminAuth().createCustomToken(decoded.uid),
+    ]);
 
-    return NextResponse.json({ token: customToken });
+    return NextResponse.json({ token: customToken, adminToken: adminCustomToken });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[impersonate]", msg);
