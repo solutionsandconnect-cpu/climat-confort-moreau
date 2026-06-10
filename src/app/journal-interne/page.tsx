@@ -214,7 +214,7 @@ function Form({ currentUserId, onClose, onSubmit }: {
   const toggle = (s: string) => setServices(p => p.includes(s) ? p.filter(x => x !== s) : [...p, s]);
 
   const submit = async () => {
-    if (!titre.trim() || !text.trim() || !nomDoc.trim()) { toast.error("Titre, contenu et nom document obligatoires"); return; }
+    if (!titre.trim() || !nomDoc.trim()) { toast.error("Titre et nom document obligatoires"); return; }
     setSaving(true);
     try {
       await onSubmit({ titre, text, nomDocument: nomDoc, dateEnvoi, services, pdfFile: pdf ?? undefined });
@@ -234,7 +234,7 @@ function Form({ currentUserId, onClose, onSubmit }: {
       </div>
       <div><label className="text-xs font-medium text-secondary-text">Titre *</label><input className="input-base mt-1" value={titre} onChange={e => setTitre(e.target.value)} placeholder="Titre…" /></div>
       <div><label className="text-xs font-medium text-secondary-text">Nom du document *</label><input className="input-base mt-1" value={nomDoc} onChange={e => setNomDoc(e.target.value)} placeholder="Note de service du…" /></div>
-      <div><label className="text-xs font-medium text-secondary-text">Contenu *</label><textarea className="input-base mt-1 resize-none" rows={4} value={text} onChange={e => setText(e.target.value)} placeholder="Contenu de l'article…" /></div>
+      <div><label className="text-xs font-medium text-secondary-text">Contenu</label><textarea className="input-base mt-1 resize-none" rows={4} value={text} onChange={e => setText(e.target.value)} placeholder="Contenu de l'article…" /></div>
       <div><label className="text-xs font-medium text-secondary-text">Date d&apos;envoi</label><input className="input-base mt-1" type="date" value={dateEnvoi} onChange={e => setDateEnvoi(e.target.value)} /></div>
       <div>
         <label className="text-xs font-medium text-secondary-text mb-1.5 block">Document PDF</label>
