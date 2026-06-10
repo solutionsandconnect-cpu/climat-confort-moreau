@@ -76,7 +76,7 @@ export default function FicheChantierPage({
   const { id } = params;
   const router = useRouter();
   const { userApp } = useAuthStore();
-  const canManage = canManage || canViewDashboard(userApp);
+  const canManage = isAdmin(userApp) || canViewDashboard(userApp);
 
   // Data
   const [operation, setOperation] = useState<Operation | null>(null);

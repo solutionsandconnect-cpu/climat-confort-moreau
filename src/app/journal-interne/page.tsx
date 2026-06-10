@@ -6,7 +6,7 @@ import { doc, collection, query, orderBy, onSnapshot, addDoc, deleteDoc, getDocs
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin, canPublishJournal, isJournalAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canPublishJournal } from "@/store/authStore";
 import { EmptyState, LoadingPage, SearchInput, Spinner } from "@/components/ui";
 import { cn, formatDate, formatDateRelative, getInitials } from "@/lib/utils";
 import { BookOpen, Plus, Trash2, X, ChevronDown, ChevronUp, Send, Eye, FileText, Calendar, Paperclip, ExternalLink, CheckCircle2, Clock } from "lucide-react";
@@ -387,7 +387,7 @@ export default function JournalInternePage() {
   }));
 
   const filtered = withNames.filter(i => {
-    if (!isJournalAdmin(userApp)) {
+    if (!isAdmin(userApp)) {
       const isDestinataire =
         i.listeNomEnvoi?.some(s => s === userApp?.service || s === userApp?.type) ||
         i.userCreate?.id === firebaseUser?.uid;

@@ -203,7 +203,7 @@ function ActeurCard({ acteur, canEdit, onEdit, onDelete }: {
 // ============================================
 export default function ActeursPage() {
   const { userApp, firebaseUser } = useAuthStore();
-  const canManage = canManage || canViewDashboard(userApp);
+  const canManage = isAdmin(userApp) || canViewDashboard(userApp);
   const [acteurs, setActeurs] = useState<Acteur[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
