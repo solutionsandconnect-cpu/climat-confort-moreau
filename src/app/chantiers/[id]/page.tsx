@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { doc, DocumentReference, collection, getDocs, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
 import {
   getOperation,
   updateOperation,
@@ -76,6 +76,7 @@ export default function FicheChantierPage({
   const { id } = params;
   const router = useRouter();
   const { userApp } = useAuthStore();
+  const canManage = canManage || canViewDashboard(userApp);
 
   // Data
   const [operation, setOperation] = useState<Operation | null>(null);
@@ -316,7 +317,7 @@ export default function FicheChantierPage({
               N° {operation.numChantier || "—"} · Créé le {formatDate(operation.dateCreate)}
             </p>
           </div>
-          {isAdmin(userApp) && (
+          {canManage && (
             <div className="flex items-center gap-2">
               {!confirmDeleteChantier ? (
                 <button onClick={() => setConfirmDeleteChantier(true)}
@@ -531,7 +532,7 @@ export default function FicheChantierPage({
         {activeTab === "batiments" && (
           <div className="space-y-3">
             {/* Boutons ajout */}
-            {isAdmin(userApp) && (
+            {canManage && (
               <div className="flex gap-2">
                 <button
                   onClick={() => router.push(`/logements/ajout?chantier=${id}`)}
@@ -588,7 +589,7 @@ export default function FicheChantierPage({
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {isAdmin(userApp) && (
+                          {canManage && (
                             <>
                               <button
                                 onClick={(e) => {
@@ -633,7 +634,7 @@ export default function FicheChantierPage({
                                 <LogementRow
                                   key={log.id}
                                   logement={log}
-                                  canEdit={isAdmin(userApp)}
+                                  canEdit={canManage}
                                   onEdit={() => router.push(`/logements/${log.id}`)}
                                   onTogglePrioritaire={() =>
                                     toggleLogementPrioritaire(log.id, log.prioritaire ?? false)
@@ -662,7 +663,7 @@ export default function FicheChantierPage({
                         <LogementRow
                           key={log.id}
                           logement={log}
-                          canEdit={isAdmin(userApp)}
+                          canEdit={canManage}
                           onEdit={() => router.push(`/logements/${log.id}`)}
                           onTogglePrioritaire={() =>
                             toggleLogementPrioritaire(log.id, log.prioritaire ?? false)
@@ -681,7 +682,7 @@ export default function FicheChantierPage({
         {/* ===== ONGLET : ACTEURS ===== */}
         {activeTab === "acteurs" && (
           <div className="space-y-3">
-            {isAdmin(userApp) && (
+            {canManage && (
               <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => router.push(`/acteurs/ajout?chantier=${id}`)}
@@ -752,7 +753,7 @@ export default function FicheChantierPage({
                           )}
                         </div>
                       </div>
-                      {isAdmin(userApp) && (
+                      {canManage && (
                         <button
                           onClick={() =>
                             router.push(`/acteurs/${acteur.id}/edit?chantier=${id}`)

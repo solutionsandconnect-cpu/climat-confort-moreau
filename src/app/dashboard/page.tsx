@@ -314,7 +314,7 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Tableau de bord</h1>
             <p className="text-sm text-secondary-text mt-0.5">{logements.length} logements · {operations.length} chantiers</p>
           </div>
-          {isAdmin(userApp) && (
+          {(isAdmin(userApp) || canViewDashboard(userApp)) && (
             <button onClick={() => router.push("/chantiers/ajout")} className="btn-primary flex items-center gap-2">
               <Plus size={16} /><span className="hidden sm:inline">Nouveau chantier</span>
             </button>

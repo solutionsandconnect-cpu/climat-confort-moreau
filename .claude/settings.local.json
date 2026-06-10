@@ -13,7 +13,9 @@
       "Bash(npx vercel *)",
       "Bash(npm uninstall *)",
       "Bash(git commit -m 'Fix build Vercel : suppression react-leaflet \\(incompatible React 18, inutilisé\\) *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\teddy\\\\climat-confort-moreau-nextjs\\\\climat-confort-moreau\\\\src\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)"
     ]
   }
 }

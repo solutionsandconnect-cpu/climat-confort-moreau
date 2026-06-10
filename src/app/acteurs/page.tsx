@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuthStore, isAdmin } from "@/store/authStore";
+import { useAuthStore, isAdmin, canViewDashboard } from "@/store/authStore";
 import { EmptyState, LoadingPage, SearchInput, Spinner } from "@/components/ui";
 import { cn, getInitials, formatDateRelative } from "@/lib/utils";
 import {
@@ -203,6 +203,7 @@ function ActeurCard({ acteur, canEdit, onEdit, onDelete }: {
 // ============================================
 export default function ActeursPage() {
   const { userApp, firebaseUser } = useAuthStore();
+  const canManage = canManage || canViewDashboard(userApp);
   const [acteurs, setActeurs] = useState<Acteur[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -312,7 +313,7 @@ export default function ActeursPage() {
             <h1 className="text-2xl font-bold text-primary-text" style={{ fontFamily: "var(--font-inter-tight)" }}>Acteurs chantiers</h1>
             <p className="text-sm text-secondary-text mt-0.5">{acteurs.length} acteur{acteurs.length !== 1 ? "s" : ""}</p>
           </div>
-          {isAdmin(userApp) && (
+          {canManage && (
             <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
               <Plus size={16} /><span className="hidden sm:inline">Ajouter un acteur</span>
             </button>
@@ -343,7 +344,7 @@ export default function ActeursPage() {
                 ) : (
                   <ActeurCard
                     acteur={acteur}
-                    canEdit={isAdmin(userApp)}
+                    canEdit={canManage}
                     onEdit={() => setEditingId(acteur.id)}
                     onDelete={() => handleDelete(acteur.id)}
                   />

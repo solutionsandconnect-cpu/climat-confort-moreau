@@ -11,9 +11,9 @@ export async function POST(req: NextRequest) {
 
     const decoded = await getAdminAuth().verifyIdToken(idToken);
 
-    const callerSnap = await getAdminDb().collection("usersapp").doc(decoded.uid).get();
-    if (!callerSnap.exists) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-    const callerRole = callerSnap.data()?.roleapp as string | undefined;
+    const callerQuery = await getAdminDb().collection("usersapp").where("uid", "==", decoded.uid).limit(1).get();
+    if (callerQuery.empty) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    const callerRole = callerQuery.docs[0].data()?.roleapp as string | undefined;
     if (callerRole !== "Admin" && callerRole !== "SuperAdmin") {
       return NextResponse.json({ error: "Accès réservé aux administrateurs" }, { status: 403 });
     }
