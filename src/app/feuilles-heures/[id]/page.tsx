@@ -971,6 +971,10 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   const handleSave = async () => {
     if (!nom.trim() || !prenom.trim()) { toast.error("Nom et prénom obligatoires"); return; }
     if (categorie === "Fiche d'heures" && !typeFH) { toast.error("Veuillez sélectionner un type de fiche"); return; }
+    if (!isNew && categorie === "Fiche d'heures") {
+      const totalH = chantiers.reduce((s, ch) => s + ch.taches.reduce((t, r) => t + (r.case1||0) + (r.case2||0) + (r.case3||0) + (r.case4||0) + (r.case5||0), 0), 0);
+      if (totalH > 38) { toast.error(`Total semaine : ${totalH}h — 38h maximum autorisées. Créez une seconde feuille pour les heures supplémentaires.`); return; }
+    }
     if (!isNew && etat === "Validé" && categorie !== "Fiche de retour Travaux imprévus" && !isAdmin(userApp)) {
       const manquantes: string[] = [];
       if (!sigUser) manquantes.push("signature salarié");
@@ -1197,6 +1201,10 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
   const handleEnvoyer = async () => {
     if (isNew) { toast.error("Sauvegardez d'abord le document"); return; }
     if (categorie !== "Fiche de retour Travaux imprévus" && !sigUser) { toast.error("Vous devez signer le document avant de l'envoyer"); return; }
+    if (categorie === "Fiche d'heures") {
+      const totalH = chantiers.reduce((s, ch) => s + ch.taches.reduce((t, r) => t + (r.case1||0) + (r.case2||0) + (r.case3||0) + (r.case4||0) + (r.case5||0), 0), 0);
+      if (totalH > 38) { toast.error(`Total semaine : ${totalH}h — 38h maximum autorisées. Créez une seconde feuille pour les heures supplémentaires.`); return; }
+    }
     if (!firebaseUser) return;
     setSending(true);
     try {
@@ -1561,12 +1569,12 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                     ))}
                   </div>
 
-                  {chantiers.length > 0 && (totalHeuresSemaine > 39 || heuresParJour.some(h => h > 10)) && (
+                  {chantiers.length > 0 && (totalHeuresSemaine > 38 || heuresParJour.some(h => h > 10)) && (
                     <div className="space-y-1.5">
-                      {totalHeuresSemaine > 39 && (
-                        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                          <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
-                          <p className="text-xs text-amber-700 font-medium">Total semaine : {totalHeuresSemaine}h — dépasse 39h</p>
+                      {totalHeuresSemaine > 38 && (
+                        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                          <AlertTriangle size={14} className="text-red-600 shrink-0 mt-0.5" />
+                          <p className="text-xs text-red-700 font-medium">Total semaine : {totalHeuresSemaine}h — dépasse 38h maximum. Créez une seconde feuille pour les heures supplémentaires.</p>
                         </div>
                       )}
                       {heuresParJour.map((h, i) => h > 10 ? (
@@ -1984,6 +1992,14 @@ export default function FHDetailPage({ params }: { params: { id: string } }) {
                 className="py-3 flex items-center justify-center gap-2 font-semibold text-sm rounded-xl border-2 transition-all px-4 bg-secondary/10 text-secondary-700 border-secondary/30 hover:bg-secondary/20">
                 {sending ? <Spinner size="sm" /> : <Send size={15} />}
                 {sending ? "Envoi…" : etat === "Refusé" ? "Renvoyer après correction" : "Envoyer"}
+              </button>
+            )}
+            {!isNew && (
+              <button onClick={handleDownloadPdf} disabled={generatingPdf}
+                className="w-full py-3 flex items-center justify-center gap-2 font-semibold text-sm rounded-xl border-2 border-alternate text-secondary-text hover:text-primary hover:border-primary/40 transition-all disabled:opacity-50">
+                {generatingPdf
+                  ? <><span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />Génération PDF…</>
+                  : <><Download size={16} />Imprimer / Télécharger PDF</>}
               </button>
             )}
           </div>
